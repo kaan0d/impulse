@@ -1,12 +1,13 @@
 import type { Body } from './body';
+import { PAIR_KEY_STRIDE, SpatialHash } from './broadphase';
 import { collide } from './collide';
 import { Manifold } from './manifold';
 import { Sleeper } from './sleeper';
 import { ContactSolver } from './solver';
 import { Vec2 } from './vec2';
 
-// Pair key = idA * stride + idB. 2^26 keeps the key an exact integer for up to 67M bodies.
-const PAIR_KEY_STRIDE = 2 ** 26;
+// Grid cell edge in metres; about twice the size of a typical body.
+const BROADPHASE_CELL_SIZE = 2;
 
 export class World {
   readonly gravity = new Vec2(0, -9.81);
@@ -17,6 +18,7 @@ export class World {
 
   private readonly solver = new ContactSolver();
   private readonly sleeper = new Sleeper();
+  private readonly broadphase = new SpatialHash(BROADPHASE_CELL_SIZE);
   // Manifolds of touching pairs live here between steps so their impulses can warm start the solver.
   private readonly pairs = new Map<number, Manifold>();
   private readonly freeManifolds: Manifold[] = [];
@@ -50,35 +52,35 @@ export class World {
     while (this.detectPass()) continue;
   }
 
-  // Brute-force O(n^2) pairs; the stage 5 broadphase replaces this loop. Returns true if a body woke.
+  // Narrowphase over the broadphase pairs, in ascending (idA, idB) order. Returns true if a body woke.
   private detectPass(): boolean {
     const { bodies, manifolds, pairs } = this;
+    const pairCount = this.broadphase.findPairs(bodies);
+    const keys = this.broadphase.pairKeys;
     let count = 0;
     let woke = false;
-    for (let i = 0; i < bodies.length; i++) {
-      for (let j = i + 1; j < bodies.length; j++) {
-        const a = bodies[i];
-        const b = bodies[j];
-        if (!a.isSimulated && !b.isSimulated) continue;
+    for (let k = 0; k < pairCount; k++) {
+      const key = keys[k];
+      const idB = key % PAIR_KEY_STRIDE;
+      const a = bodies[(key - idB) / PAIR_KEY_STRIDE];
+      const b = bodies[idB];
 
-        const key = a.id * PAIR_KEY_STRIDE + b.id;
-        const known = pairs.get(key);
-        const manifold = known ?? this.takeSpare(a, b);
-        known?.savePrevious();
-        if (!collide(a, b, manifold)) {
-          if (known) this.release(key, known);
-          continue;
-        }
-        if (!known) {
-          pairs.set(key, manifold);
-          this.spare = undefined;
-        }
-        manifold.carryImpulses();
-        const wokeA = wake(a);
-        const wokeB = wake(b);
-        woke = woke || wokeA || wokeB;
-        manifolds[count++] = manifold;
+      const known = pairs.get(key);
+      const manifold = known ?? this.takeSpare(a, b);
+      known?.savePrevious();
+      if (!collide(a, b, manifold)) {
+        if (known) this.release(key, known);
+        continue;
       }
+      if (!known) {
+        pairs.set(key, manifold);
+        this.spare = undefined;
+      }
+      manifold.carryImpulses();
+      const wokeA = wake(a);
+      const wokeB = wake(b);
+      woke = woke || wokeA || wokeB;
+      manifolds[count++] = manifold;
     }
     this.manifoldCount = count;
     return woke;
