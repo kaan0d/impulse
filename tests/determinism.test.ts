@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Body } from '../src/engine/body';
 import { FIXED_DT, FixedStepper } from '../src/engine/stepper';
 import { World } from '../src/engine/world';
+import { buildTower, groundWorld } from './helpers';
 
 function makeScene(): World {
   const world = new World();
@@ -17,7 +18,9 @@ function makeScene(): World {
 // Raw bits, so +0/-0 and last-digit differences count as mismatches.
 function snapshot(world: World): BigUint64Array {
   const values: number[] = [];
-  for (const b of world.bodies) values.push(b.position.x, b.position.y, b.angle, b.velocity.x, b.velocity.y, b.angularVelocity);
+  for (const b of world.bodies) {
+    values.push(b.position.x, b.position.y, b.angle, b.velocity.x, b.velocity.y, b.angularVelocity, b.awake ? 1 : 0);
+  }
   return new BigUint64Array(new Float64Array(values).buffer);
 }
 
@@ -65,5 +68,19 @@ describe('determinism', () => {
 
   it('clamps a huge frame instead of running away', () => {
     expect(runFrames([10]).steps).toBeLessThanOrEqual(15);
+  });
+});
+
+describe('determinism with stacking and sleeping', () => {
+  function runTower(): BigUint64Array {
+    const world = groundWorld();
+    buildTower(world, 10, 0.05);
+    world.add(Body.circle(0.3, 1, 0.2, 14));
+    for (let i = 0; i < 900; i++) world.step(FIXED_DT);
+    return snapshot(world);
+  }
+
+  it('a tower hit by a ball twice gives bit-identical results, sleep flags included', () => {
+    expect(runTower()).toEqual(runTower());
   });
 });

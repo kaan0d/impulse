@@ -2,20 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Body } from '../src/engine/body';
 import { FIXED_DT } from '../src/engine/stepper';
 import { World } from '../src/engine/world';
+import { groundWorld, run } from './helpers';
 
 const G = 9.81;
-
-function run(world: World, seconds: number): void {
-  const steps = Math.round(seconds / FIXED_DT);
-  for (let i = 0; i < steps; i++) world.step(FIXED_DT);
-}
-
-// Static ground with its top surface at y = 0.
-function groundWorld(): World {
-  const world = new World();
-  world.add(Body.box(40, 1, Infinity, 0, -0.5));
-  return world;
-}
 
 function kineticEnergy(bodies: Body[]): number {
   return bodies.reduce((sum, b) => sum + 0.5 * b.mass * b.velocity.lengthSq() + 0.5 * b.inertia * b.angularVelocity ** 2, 0);
@@ -51,6 +40,21 @@ describe('resting contact', () => {
     run(world, 3);
     expect(ball.velocity.length()).toBeLessThan(0.01);
     expect(0 - (ball.position.y - 0.5)).toBeLessThan(0.01);
+  });
+});
+
+describe('warm starting', () => {
+  it('resting impulses equal the weight per step and persist in one pooled manifold', () => {
+    const world = groundWorld();
+    world.add(Body.box(1, 1, 2, 0, 0.5));
+    run(world, 0.2);
+    const manifold = world.manifolds[0];
+    const supportImpulse = () => manifold.normalImpulses[0] + manifold.normalImpulses[1];
+    expect(supportImpulse()).toBeCloseTo(2 * G * FIXED_DT, 3);
+
+    run(world, 0.1);
+    expect(world.manifolds[0]).toBe(manifold);
+    expect(supportImpulse()).toBeCloseTo(2 * G * FIXED_DT, 3);
   });
 });
 

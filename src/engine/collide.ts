@@ -36,7 +36,7 @@ function circleVsCircle(a: Body, sa: CircleShape, b: Body, sb: CircleShape, out:
   // Contact sits midway between the two surface points.
   const along = sa.radius - depth / 2;
   out.normal.set(nx, ny);
-  out.addContact(a.position.x + nx * along, a.position.y + ny * along, depth);
+  out.addContact(a.position.x + nx * along, a.position.y + ny * along, depth, 0);
   return true;
 }
 
@@ -86,7 +86,7 @@ function boxVsCircle(box: Body, sb: BoxShape, circle: Body, sc: CircleShape, out
   const mx = px - (nx * depth) / 2;
   const my = py - (ny * depth) / 2;
   out.normal.set(cos * nx - sin * ny, sin * nx + cos * ny);
-  out.addContact(box.position.x + cos * mx - sin * my, box.position.y + sin * mx + cos * my, depth);
+  out.addContact(box.position.x + cos * mx - sin * my, box.position.y + sin * mx + cos * my, depth, 0);
   return true;
 }
 
@@ -128,6 +128,8 @@ class Axis {
 }
 
 class Segment {
+  // Which of the box's four faces this is: x axis, y axis, then their negatives.
+  face = 0;
   x0 = 0;
   y0 = 0;
   x1 = 0;
@@ -174,10 +176,13 @@ function boxVsBox(a: Body, sa: BoxShape, b: Body, sb: BoxShape, out: Manifold): 
   const planeOffset = faceX * rnx + faceY * rny;
   const edgeDx = e.x1 - e.x0;
   const edgeDy = e.y1 - e.y0;
-  emitIfBelowFace(out, e.x0 + edgeDx * clipRange.x, e.y0 + edgeDy * clipRange.x, rnx, rny, planeOffset);
+  // Feature id: which box owns the reference face, which faces meet, and which edge end the point is.
+  const refFace = (axis.index % 2) + (rnx * axis.x + rny * axis.y < 0 ? 2 : 0);
+  const featureBase = (refIsA ? 32 : 0) + refFace * 8 + e.face * 2;
+  emitIfBelowFace(out, e.x0 + edgeDx * clipRange.x, e.y0 + edgeDy * clipRange.x, rnx, rny, planeOffset, featureBase);
   // A clip that collapsed to one point would otherwise emit it twice.
   if (clipRange.y > clipRange.x) {
-    emitIfBelowFace(out, e.x0 + edgeDx * clipRange.y, e.y0 + edgeDy * clipRange.y, rnx, rny, planeOffset);
+    emitIfBelowFace(out, e.x0 + edgeDx * clipRange.y, e.y0 + edgeDy * clipRange.y, rnx, rny, planeOffset, featureBase + 1);
   }
   return out.count > 0;
 }
@@ -214,6 +219,7 @@ function findIncidentEdge(inc: BoxFrame, rnx: number, rny: number, edge: Segment
   const cx = inc.x + nx * faceHalf;
   const cy = inc.y + ny * faceHalf;
   // The edge runs perpendicular to the face normal.
+  edge.face = (useX ? 0 : 1) + (flip < 0 ? 2 : 0);
   edge.x0 = cx + ny * edgeHalf;
   edge.y0 = cy - nx * edgeHalf;
   edge.x1 = cx - ny * edgeHalf;
@@ -234,11 +240,19 @@ function clipToSlab(d0: number, d1: number, half: number, range: Vec2): boolean 
 }
 
 // Adds a contact for a point on or behind the reference face plane (n . p = planeOffset).
-function emitIfBelowFace(out: Manifold, px: number, py: number, rnx: number, rny: number, planeOffset: number): void {
+function emitIfBelowFace(
+  out: Manifold,
+  px: number,
+  py: number,
+  rnx: number,
+  rny: number,
+  planeOffset: number,
+  id: number,
+): void {
   const separation = px * rnx + py * rny - planeOffset;
   if (separation > 0) return;
   // Midway between the point and its projection onto the face.
-  out.addContact(px - (rnx * separation) / 2, py - (rny * separation) / 2, -separation);
+  out.addContact(px - (rnx * separation) / 2, py - (rny * separation) / 2, -separation, id);
 }
 
 function signOf(value: number): number {

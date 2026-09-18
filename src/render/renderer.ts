@@ -5,6 +5,7 @@ import type { World } from '../engine/world';
 const PIXELS_PER_METER = 50;
 const TWO_PI = Math.PI * 2;
 const DYNAMIC_COLOR = '#4f8cff';
+const SLEEPING_COLOR = '#2d4a80';
 const STATIC_COLOR = '#5c6370';
 const CONTACT_COLOR = '#ff5c5c';
 const CONTACT_DOT_RADIUS = 0.06;
@@ -66,7 +67,7 @@ export class Renderer {
   private drawBody(body: Body): void {
     const { ctx } = this;
     const { shape } = body;
-    ctx.fillStyle = body.invMass === 0 ? STATIC_COLOR : DYNAMIC_COLOR;
+    ctx.fillStyle = body.invMass === 0 ? STATIC_COLOR : body.awake ? DYNAMIC_COLOR : SLEEPING_COLOR;
     ctx.save();
     ctx.translate(body.position.x, body.position.y);
     ctx.rotate(body.angle);

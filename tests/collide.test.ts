@@ -154,6 +154,20 @@ describe('box vs box', () => {
     expectContact(manifold, 0, 0, tipY, tipDepth);
   });
 
+  it('feature ids are distinct per contact and survive small motion', () => {
+    const ground = Body.box(10, 2, 1, 0, 0);
+    const box = Body.box(1, 1, 1, 0, 1.4);
+    const before = hit(ground, box);
+    const idsBefore = [before.ids[0], before.ids[1]];
+    expect(before.count).toBe(2);
+    expect(idsBefore[0]).not.toBe(idsBefore[1]);
+
+    box.position.set(0.02, 1.39);
+    box.angle = 0.01;
+    const after = hit(ground, box);
+    expect([after.ids[0], after.ids[1]].sort()).toEqual([...idsBefore].sort());
+  });
+
   it('separated boxes do not collide', () => {
     expectMiss(Body.box(2, 2, 1, 0, 0), Body.box(2, 2, 1, 2.5, 0));
   });

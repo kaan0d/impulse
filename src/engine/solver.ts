@@ -2,7 +2,8 @@ import type { Body } from './body';
 import { clamp } from './math';
 import type { Manifold } from './manifold';
 
-const VELOCITY_ITERATIONS = 10;
+// Tall stacks converge slowly under Gauss-Seidel; 10-box towers need about 30 to settle and sleep.
+const VELOCITY_ITERATIONS = 30;
 // Slower impacts are treated as inelastic, so resting contacts do not jitter.
 const RESTITUTION_THRESHOLD = 1;
 // Overlap tolerated before position correction starts, keeps contacts alive at rest.
@@ -16,16 +17,22 @@ export class ContactSolver {
   private count = 0;
 
   // Changes body velocities so contacts stop approaching, then pushes overlapping bodies apart.
+  // Accumulated impulses persist in the manifolds and warm start the next step.
   solve(manifolds: Manifold[], manifoldCount: number): void {
     this.prepare(manifolds, manifoldCount);
     const { constraints, count } = this;
+    // All biases read the incoming velocities, so warm start only after every constraint is prepared.
+    for (let i = 0; i < count; i++) constraints[i].warmStart();
     for (let iteration = 0; iteration < VELOCITY_ITERATIONS; iteration++) {
       for (let i = 0; i < count; i++) {
         constraints[i].solveFriction();
         constraints[i].solveNormal();
       }
     }
-    for (let i = 0; i < count; i++) constraints[i].correctPosition();
+    for (let i = 0; i < count; i++) {
+      constraints[i].storeImpulses();
+      constraints[i].correctPosition();
+    }
   }
 
   private prepare(manifolds: Manifold[], manifoldCount: number): void {
@@ -35,7 +42,7 @@ export class ContactSolver {
       for (let j = 0; j < manifold.count; j++) {
         let constraint: ContactConstraint | undefined = this.constraints[count];
         if (!constraint) {
-          constraint = new ContactConstraint(manifold.bodyA, manifold.bodyB);
+          constraint = new ContactConstraint(manifold);
           this.constraints.push(constraint);
         }
         constraint.prepare(manifold, j);
@@ -48,6 +55,9 @@ export class ContactSolver {
 
 /// One contact point: a non-penetration constraint plus a Coulomb friction constraint.
 class ContactConstraint {
+  private bodyA: Body;
+  private bodyB: Body;
+  private pointIndex = 0;
   // Normal points from bodyA toward bodyB; the friction tangent is (ny, -nx).
   private nx = 0;
   private ny = 0;
@@ -66,15 +76,17 @@ class ContactConstraint {
   private normalImpulse = 0;
   private tangentImpulse = 0;
 
-  constructor(
-    private bodyA: Body,
-    private bodyB: Body,
-  ) {}
+  constructor(private manifold: Manifold) {
+    this.bodyA = manifold.bodyA;
+    this.bodyB = manifold.bodyB;
+  }
 
   prepare(manifold: Manifold, pointIndex: number): void {
     const a = manifold.bodyA;
     const b = manifold.bodyB;
     const point = manifold.points[pointIndex];
+    this.manifold = manifold;
+    this.pointIndex = pointIndex;
     this.bodyA = a;
     this.bodyB = b;
     this.nx = manifold.normal.x;
@@ -85,17 +97,22 @@ class ContactConstraint {
     this.rAy = point.y - a.position.y;
     this.rBx = point.x - b.position.x;
     this.rBy = point.y - b.position.y;
-    this.normalImpulse = 0;
-    this.tangentImpulse = 0;
+    this.normalImpulse = manifold.normalImpulses[pointIndex];
+    this.tangentImpulse = manifold.tangentImpulses[pointIndex];
 
-    const tx = this.ny;
-    const ty = -this.nx;
     this.normalMass = this.effectiveMass(this.nx, this.ny);
-    this.tangentMass = this.effectiveMass(tx, ty);
+    this.tangentMass = this.effectiveMass(this.ny, -this.nx);
 
     const approachSpeed = this.velocityAlong(this.nx, this.ny);
     const bounces = approachSpeed < -RESTITUTION_THRESHOLD;
     this.restitutionBias = bounces ? -Math.max(a.restitution, b.restitution) * approachSpeed : 0;
+  }
+
+  // Re-applies last step's impulses so the solver starts near the answer.
+  warmStart(): void {
+    const tx = this.ny;
+    const ty = -this.nx;
+    this.applyImpulse(this.nx * this.normalImpulse + tx * this.tangentImpulse, this.ny * this.normalImpulse + ty * this.tangentImpulse);
   }
 
   solveFriction(): void {
@@ -115,6 +132,11 @@ class ContactConstraint {
     const applied = next - this.normalImpulse;
     this.normalImpulse = next;
     this.applyImpulse(this.nx * applied, this.ny * applied);
+  }
+
+  storeImpulses(): void {
+    this.manifold.normalImpulses[this.pointIndex] = this.normalImpulse;
+    this.manifold.tangentImpulses[this.pointIndex] = this.tangentImpulse;
   }
 
   // Moves the bodies apart along the normal without touching velocity, so no energy is added.

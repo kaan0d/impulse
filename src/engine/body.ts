@@ -21,6 +21,11 @@ export class Body {
   angularVelocity = 0;
   friction = 0.5;
   restitution = 0;
+  // Index in `world.bodies`, assigned by `World.add`.
+  id = -1;
+  awake = true;
+  // Seconds spent below the sleep speed thresholds.
+  sleepTime = 0;
 
   readonly invMass: number;
   readonly inertia: number;
@@ -37,6 +42,11 @@ export class Body {
     this.invMass = 1 / mass;
     this.inertia = computeInertia(shape, mass);
     this.invInertia = 1 / this.inertia;
+  }
+
+  // False for static and sleeping bodies: they are skipped by integration and the solver.
+  get isSimulated(): boolean {
+    return this.invMass !== 0 && this.awake;
   }
 
   static circle(radius: number, mass: number, x: number, y: number): Body {
