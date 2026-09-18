@@ -23,7 +23,7 @@ Live demo: https://kaan0d.github.io/impulse/ (goes live in Stage 7)
 ## Structure
 
 ```
-src/engine/   pure physics (Vec2, Body, World, FixedStepper, collide, Manifold, ContactSolver, Sleeper, SpatialHash)
+src/engine/   pure physics (Vec2, Body, World, FixedStepper, collide, Manifold, Solver, Sleeper, SpatialHash, Joint)
 src/render/   Canvas drawing and contact debug overlay
 src/demo/     demo scenes
 tests/        Vitest unit tests
@@ -50,7 +50,7 @@ One commit per stage: `stage N: <summary>`. A stage is done when its tests are g
 - [x] Stage 3
 - [x] Stage 4
 - [x] Stage 5
-- [ ] Stage 6 (optional)
+- [x] Stage 6 (optional)
 - [ ] Stage 7
 
 ## Benchmark results

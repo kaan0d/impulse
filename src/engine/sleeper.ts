@@ -1,4 +1,5 @@
 import type { Body } from './body';
+import type { Joint } from './joint';
 import type { Manifold } from './manifold';
 
 const SLEEP_LINEAR_SPEED = 0.02; // m/s
@@ -11,8 +12,8 @@ export class Sleeper {
   private parent = new Int32Array(0);
   private islandStillTime = new Float64Array(0);
 
-  // Call once per step after integration, with the step's active manifolds.
-  update(bodies: Body[], manifolds: Manifold[], manifoldCount: number, dt: number): void {
+  // Call once per step after integration, with the step's active manifolds. Joints link bodies into islands too.
+  update(bodies: Body[], manifolds: Manifold[], manifoldCount: number, joints: Joint[], dt: number): void {
     this.ensureCapacity(bodies.length);
     for (const body of bodies) {
       if (!body.isSimulated) continue;
@@ -25,6 +26,9 @@ export class Sleeper {
 
     for (let i = 0; i < manifoldCount; i++) {
       const { bodyA, bodyB } = manifolds[i];
+      if (bodyA.isSimulated && bodyB.isSimulated) this.union(bodyA.id, bodyB.id);
+    }
+    for (const { bodyA, bodyB } of joints) {
       if (bodyA.isSimulated && bodyB.isSimulated) this.union(bodyA.id, bodyB.id);
     }
 

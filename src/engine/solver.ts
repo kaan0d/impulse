@@ -1,4 +1,5 @@
 import type { Body } from './body';
+import type { Joint } from './joint';
 import { clamp } from './math';
 import type { Manifold } from './manifold';
 
@@ -11,19 +12,22 @@ const PENETRATION_SLOP = 0.005;
 // Fraction of the excess overlap removed per step.
 const CORRECTION_FACTOR = 0.2;
 
-/// Sequential-impulse solver for contact points, after Box2D Lite. Pools its constraints; no per-step allocation.
-export class ContactSolver {
+/// Sequential-impulse solver for contacts and joints, after Box2D Lite. Pools its constraints; no per-step allocation.
+export class Solver {
   private readonly constraints: ContactConstraint[] = [];
   private count = 0;
 
-  // Changes body velocities so contacts stop approaching, then pushes overlapping bodies apart.
-  // Accumulated impulses persist in the manifolds and warm start the next step.
-  solve(manifolds: Manifold[], manifoldCount: number): void {
+  // Changes body velocities so joints hold and contacts stop approaching, then pushes overlapping bodies apart.
+  // Accumulated impulses persist in the manifolds and joints and warm start the next step.
+  solve(manifolds: Manifold[], manifoldCount: number, joints: Joint[], invDt: number): void {
+    for (const joint of joints) joint.prepare(invDt);
     this.prepare(manifolds, manifoldCount);
     const { constraints, count } = this;
     // All biases read the incoming velocities, so warm start only after every constraint is prepared.
+    for (const joint of joints) joint.warmStart();
     for (let i = 0; i < count; i++) constraints[i].warmStart();
     for (let iteration = 0; iteration < VELOCITY_ITERATIONS; iteration++) {
+      for (const joint of joints) joint.solve();
       for (let i = 0; i < count; i++) {
         constraints[i].solveFriction();
         constraints[i].solveNormal();

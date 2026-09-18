@@ -10,10 +10,14 @@ const STATIC_COLOR = '#5c6370';
 const CONTACT_COLOR = '#ff5c5c';
 const CONTACT_DOT_RADIUS = 0.06;
 const NORMAL_LENGTH = 0.4;
+const JOINT_COLOR = '#7ee0a1';
+const JOINT_DOT_RADIUS = 0.07;
 
 /// Draws a World on a canvas. World origin is the bottom-left corner, y up.
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
+  private readonly anchorA = new Vec2();
+  private readonly anchorB = new Vec2();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -41,7 +45,28 @@ export class Renderer {
     ctx.lineWidth = 2 / PIXELS_PER_METER;
     ctx.strokeStyle = '#dbe6ff';
     for (const body of this.world.bodies) this.drawBody(body);
+    this.drawJoints();
     this.drawContacts();
+  }
+
+  // Debug overlay: a dot on each anchor, joined by a line (a rod shows as a line, a pin as one dot).
+  private drawJoints(): void {
+    const { ctx, world, anchorA, anchorB } = this;
+    ctx.strokeStyle = JOINT_COLOR;
+    ctx.fillStyle = JOINT_COLOR;
+    for (const joint of world.joints) {
+      joint.anchorA(anchorA);
+      joint.anchorB(anchorB);
+      ctx.beginPath();
+      ctx.moveTo(anchorA.x, anchorA.y);
+      ctx.lineTo(anchorB.x, anchorB.y);
+      ctx.stroke();
+      for (const anchor of [anchorA, anchorB]) {
+        ctx.beginPath();
+        ctx.arc(anchor.x, anchor.y, JOINT_DOT_RADIUS, 0, TWO_PI);
+        ctx.fill();
+      }
+    }
   }
 
   // Debug overlay: a dot per contact point and a line along the contact normal.
