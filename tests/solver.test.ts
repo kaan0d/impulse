@@ -58,6 +58,31 @@ describe('warm starting', () => {
   });
 });
 
+describe('block solver', () => {
+  it('splits the weight of a centred box evenly over its two contact points', () => {
+    const world = groundWorld();
+    world.add(Body.box(1, 1, 2, 0, 0.5));
+    run(world, 0.2);
+    const manifold = world.manifolds[0];
+    expect(manifold.count).toBe(2);
+    const [left, right] = manifold.normalImpulses;
+    expect(left).toBeCloseTo(right, 6);
+    expect(left + right).toBeCloseTo(2 * G * FIXED_DT, 3);
+  });
+
+  it('never applies a pulling normal impulse', () => {
+    const world = groundWorld();
+    const box = world.add(Body.box(1, 1, 1, 0, 2));
+    box.angle = 0.3;
+    for (let step = 0; step < 240; step++) {
+      world.step(FIXED_DT);
+      for (let m = 0; m < world.manifoldCount; m++) {
+        for (const impulse of world.manifolds[m].normalImpulses) expect(impulse).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+});
+
 describe('restitution', () => {
   function headOn(e: number, massB: number): { a: Body; b: Body; world: World } {
     const world = new World();

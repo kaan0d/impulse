@@ -16,6 +16,9 @@ const JOINT_DOT_RADIUS = 0.07;
 /// Draws a World on a canvas. World origin is the bottom-left corner, y up.
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
+  // Debug overlays, switchable at any time.
+  showContacts = true;
+  showJoints = true;
   private readonly anchorA = new Vec2();
   private readonly anchorB = new Vec2();
 
@@ -44,9 +47,10 @@ export class Renderer {
     ctx.setTransform(PIXELS_PER_METER, 0, 0, -PIXELS_PER_METER, 0, canvas.height);
     ctx.lineWidth = 2 / PIXELS_PER_METER;
     ctx.strokeStyle = '#dbe6ff';
-    for (const body of this.world.bodies) this.drawBody(body);
-    this.drawJoints();
-    this.drawContacts();
+    // Markers such as a mouse-joint cursor are not drawn.
+    for (const body of this.world.bodies) if (body.collidable) this.drawBody(body);
+    if (this.showJoints) this.drawJoints();
+    if (this.showContacts) this.drawContacts();
   }
 
   // Debug overlay: a dot on each anchor, joined by a line (a rod shows as a line, a pin as one dot).
@@ -102,8 +106,11 @@ export class Renderer {
       // Radius line makes rotation visible.
       ctx.moveTo(0, 0);
       ctx.lineTo(shape.radius, 0);
-    } else {
+    } else if (shape.kind === 'box') {
       ctx.rect(-shape.width / 2, -shape.height / 2, shape.width, shape.height);
+    } else {
+      shape.vertices.forEach((vertex, i) => (i === 0 ? ctx.moveTo(vertex.x, vertex.y) : ctx.lineTo(vertex.x, vertex.y)));
+      ctx.closePath();
     }
     ctx.fill();
     ctx.stroke();

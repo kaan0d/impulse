@@ -25,10 +25,13 @@ function randomWorld(seed: number, { count, extent, staticShare = 0.1, sleepingS
     const x = (random() - 0.5) * extent;
     const y = (random() - 0.5) * extent;
     const mass = random() < staticShare ? Infinity : 1;
+    const kind = random();
     const body =
-      random() < 0.4
+      kind < 0.35
         ? Body.circle(0.2 + random() * 1.2, mass, x, y)
-        : Body.box(0.3 + random() * 2.5, 0.3 + random() * 2.5, mass, x, y);
+        : kind < 0.7
+          ? Body.box(0.3 + random() * 2.5, 0.3 + random() * 2.5, mass, x, y)
+          : Body.regularPolygon(3 + Math.floor(random() * 5), 0.3 + random() * 1.3, mass, x, y);
     body.angle = random() * Math.PI * 2;
     body.awake = random() >= sleepingShare;
     world.add(body);
@@ -44,9 +47,11 @@ function boundsOf(body: Body): [number, number, number, number] {
   }
   const xs: number[] = [];
   const ys: number[] = [];
-  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-    const lx = (sx * shape.width) / 2;
-    const ly = (sy * shape.height) / 2;
+  const corners =
+    shape.kind === 'box'
+      ? [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => [(sx * shape.width) / 2, (sy * shape.height) / 2])
+      : shape.vertices.map((vertex) => [vertex.x, vertex.y]);
+  for (const [lx, ly] of corners) {
     xs.push(position.x + Math.cos(body.angle) * lx - Math.sin(body.angle) * ly);
     ys.push(position.y + Math.sin(body.angle) * lx + Math.cos(body.angle) * ly);
   }

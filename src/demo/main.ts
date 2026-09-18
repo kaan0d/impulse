@@ -1,37 +1,20 @@
 import { Body } from '../engine/body';
-import { DistanceJoint, RevoluteJoint } from '../engine/joint';
-import { FixedStepper } from '../engine/stepper';
-import { Vec2 } from '../engine/vec2';
+import { MouseJoint } from '../engine/joint';
+import { FIXED_DT, FixedStepper } from '../engine/stepper';
 import { World } from '../engine/world';
 import { Renderer } from '../render/renderer';
+import { scenes } from './scenes';
 
 const SPAWN_ANGULAR_VELOCITY = 1;
+// A held body can be pulled with this many newtons per kilogram.
+const GRAB_FORCE_PER_KG = 1000;
 
 const spawners: Record<string, (x: number, y: number) => Body> = {
   circle: (x, y) => Body.circle(0.5, 1, x, y),
   box: (x, y) => Body.box(1, 1, 1, x, y),
+  triangle: (x, y) => Body.regularPolygon(3, 0.7, 1, x, y),
+  hexagon: (x, y) => Body.regularPolygon(6, 0.55, 1, x, y),
 };
-
-// Six boxes pinned end to end from a fixed bar, flicked sideways so the chain swings.
-function addSwingingChain(world: World, x: number, top: number): void {
-  const linkLength = 0.8;
-  let previous = world.add(Body.box(1.2, 0.2, Infinity, x, top + 0.1));
-  for (let i = 0; i < 6; i++) {
-    const pinY = top - i * linkLength;
-    const link = world.add(Body.box(0.25, linkLength, 1, x, pinY - linkLength / 2));
-    world.addJoint(new RevoluteJoint(previous, link, new Vec2(x, pinY)));
-    previous = link;
-  }
-  previous.velocity.set(4, 0);
-}
-
-// A ball on a fixed-length rod, released level with its pivot.
-function addRodPendulum(world: World, pivotX: number, pivotY: number): void {
-  const rodLength = 3;
-  const pivot = world.add(Body.box(0.4, 0.4, Infinity, pivotX, pivotY));
-  const bob = world.add(Body.circle(0.4, 1, pivotX + rodLength, pivotY));
-  world.addJoint(new DistanceJoint(pivot, bob, new Vec2(pivotX, pivotY), new Vec2(pivotX + rodLength, pivotY)));
-}
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -41,11 +24,67 @@ function byId<T extends HTMLElement>(id: string): T {
 
 const canvas = byId<HTMLCanvasElement>('view');
 const world = new World();
-world.add(Body.box(18, 1, Infinity, 9, 0.5));
-addSwingingChain(world, 4, 10.4);
-addRodPendulum(world, 13, 11);
 const renderer = new Renderer(canvas, world);
 const stepper = new FixedStepper(world);
+
+// Read-only handle for the browser test and for poking around in the console.
+declare global {
+  interface Window {
+    impulse: { world: World; renderer: Renderer };
+  }
+}
+window.impulse = { world, renderer };
+
+// --- scene loading ---
+
+const sceneSelect = byId<HTMLSelectElement>('scene');
+scenes.forEach((scene, index) => sceneSelect.add(new Option(scene.name, String(index))));
+
+// The mouse-joint marker body and the joint in use; both die with the scene.
+let cursor: Body | null = null;
+let grab: MouseJoint | null = null;
+
+function loadScene(): void {
+  world.clear();
+  cursor = null;
+  grab = null;
+  scenes[Number(sceneSelect.value)].build(world);
+}
+
+sceneSelect.addEventListener('change', loadScene);
+byId('reset').addEventListener('click', loadScene);
+loadScene();
+
+// --- time controls ---
+
+const pauseButton = byId<HTMLButtonElement>('pause');
+const speedSelect = byId<HTMLSelectElement>('speed');
+let paused = false;
+
+function setPaused(value: boolean): void {
+  paused = value;
+  pauseButton.textContent = paused ? 'Resume' : 'Pause';
+}
+
+pauseButton.addEventListener('click', () => setPaused(!paused));
+byId('step').addEventListener('click', () => {
+  setPaused(true);
+  world.step(FIXED_DT);
+});
+
+// --- overlays and options ---
+
+for (const [id, apply] of [
+  ['show-contacts', (on: boolean) => (renderer.showContacts = on)],
+  ['show-joints', (on: boolean) => (renderer.showJoints = on)],
+  ['continuous', (on: boolean) => (world.continuousCollision = on)],
+] as const) {
+  const box = byId<HTMLInputElement>(id);
+  apply(box.checked);
+  box.addEventListener('change', () => apply(box.checked));
+}
+
+// --- drag and drop spawning ---
 
 for (const item of byId('palette').querySelectorAll<HTMLElement>('.item')) {
   item.addEventListener('dragstart', (event) => {
@@ -64,11 +103,58 @@ canvas.addEventListener('drop', (event) => {
   world.add(body);
 });
 
+// --- grabbing bodies with the pointer ---
+
+canvas.addEventListener('pointerdown', (event) => {
+  const at = renderer.clientToWorld(event.clientX, event.clientY);
+  const body = world.bodyAt(at.x, at.y);
+  if (!body || grab) return;
+  if (!cursor) {
+    cursor = world.add(Body.circle(0.01, Infinity, at.x, at.y));
+    cursor.collidable = false;
+  }
+  cursor.position.set(at.x, at.y);
+  grab = world.addJoint(new MouseJoint(cursor, body, at, GRAB_FORCE_PER_KG * body.mass)) as MouseJoint;
+  canvas.setPointerCapture(event.pointerId);
+});
+
+canvas.addEventListener('pointermove', (event) => {
+  if (!grab) return;
+  const at = renderer.clientToWorld(event.clientX, event.clientY);
+  grab.setTarget(at.x, at.y);
+});
+
+function release(): void {
+  if (!grab) return;
+  world.removeJoint(grab);
+  grab = null;
+}
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+
+// --- main loop ---
+
+const status = byId('status');
 let lastFrameMs = performance.now();
+let lastStatusMs = 0;
+let stepMs = 0;
+
 function frame(nowMs: number): void {
-  stepper.advance(Math.max(0, nowMs - lastFrameMs) / 1000);
+  const frameSeconds = Math.max(0, nowMs - lastFrameMs) / 1000;
   lastFrameMs = nowMs;
+  if (!paused) {
+    const start = performance.now();
+    // The speed multiplier only changes how much time is fed in; physics still steps by FIXED_DT.
+    stepper.advance(frameSeconds * Number(speedSelect.value));
+    stepMs = performance.now() - start;
+  }
   renderer.draw();
+
+  if (nowMs - lastStatusMs > 250) {
+    lastStatusMs = nowMs;
+    const awake = world.bodies.filter((body) => body.isSimulated).length;
+    status.textContent = `${world.bodies.length} bodies, ${awake} awake, ${world.manifoldCount} contacts, ${stepMs.toFixed(1)} ms per frame of physics`;
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

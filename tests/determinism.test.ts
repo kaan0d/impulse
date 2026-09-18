@@ -84,3 +84,21 @@ describe('determinism with stacking and sleeping', () => {
     expect(runTower()).toEqual(runTower());
   });
 });
+
+describe('determinism with polygons', () => {
+  function runPolygonPile(): BigUint64Array {
+    const world = groundWorld();
+    for (let i = 0; i < 24; i++) {
+      const body = i % 3 === 0 ? Body.box(0.8, 0.8, 1, 0, 0) : Body.regularPolygon(3 + (i % 4), 0.5, 1, 0, 0);
+      body.position.set(((i % 6) - 2.5) * 0.9, 1 + Math.floor(i / 6) * 1.1);
+      body.angle = i * 0.37;
+      world.add(body);
+    }
+    for (let i = 0; i < 600; i++) world.step(FIXED_DT);
+    return snapshot(world);
+  }
+
+  it('a pile of polygons and boxes run twice is bit-identical', () => {
+    expect(runPolygonPile()).toEqual(runPolygonPile());
+  });
+});

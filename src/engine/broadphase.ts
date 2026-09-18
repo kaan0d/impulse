@@ -42,23 +42,43 @@ export class SpatialHash {
     if (this.bounds.length < bodies.length * 4) this.bounds = new Float64Array(bodies.length * 8);
     const { bounds } = this;
     for (const body of bodies) {
-      const { shape } = body;
-      let halfX: number;
-      let halfY: number;
-      if (shape.kind === 'circle') {
-        halfX = shape.radius;
-        halfY = shape.radius;
-      } else {
-        const cos = Math.abs(Math.cos(body.angle));
-        const sin = Math.abs(Math.sin(body.angle));
-        halfX = (shape.width * cos + shape.height * sin) / 2;
-        halfY = (shape.width * sin + shape.height * cos) / 2;
-      }
       const at = body.id * 4;
-      bounds[at] = body.position.x - halfX;
-      bounds[at + 1] = body.position.y - halfY;
-      bounds[at + 2] = body.position.x + halfX;
-      bounds[at + 3] = body.position.y + halfY;
+      const { shape, position } = body;
+      if (shape.kind === 'circle') {
+        bounds[at] = position.x - shape.radius;
+        bounds[at + 1] = position.y - shape.radius;
+        bounds[at + 2] = position.x + shape.radius;
+        bounds[at + 3] = position.y + shape.radius;
+        continue;
+      }
+      const cos = Math.cos(body.angle);
+      const sin = Math.sin(body.angle);
+      if (shape.kind === 'box') {
+        const halfX = (shape.width * Math.abs(cos) + shape.height * Math.abs(sin)) / 2;
+        const halfY = (shape.width * Math.abs(sin) + shape.height * Math.abs(cos)) / 2;
+        bounds[at] = position.x - halfX;
+        bounds[at + 1] = position.y - halfY;
+        bounds[at + 2] = position.x + halfX;
+        bounds[at + 3] = position.y + halfY;
+        continue;
+      }
+      // Polygon: extremes of the rotated vertices.
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const vertex of shape.vertices) {
+        const x = cos * vertex.x - sin * vertex.y;
+        const y = sin * vertex.x + cos * vertex.y;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+      bounds[at] = position.x + minX;
+      bounds[at + 1] = position.y + minY;
+      bounds[at + 2] = position.x + maxX;
+      bounds[at + 3] = position.y + maxY;
     }
   }
 

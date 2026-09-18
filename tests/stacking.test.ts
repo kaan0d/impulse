@@ -40,6 +40,31 @@ describe('tower', () => {
   });
 });
 
+describe('block solver: tall stacks', () => {
+  it('a 10-box tower settles and sleeps within 3 seconds', () => {
+    const world = groundWorld();
+    const boxes = buildTower(world, HEIGHT);
+    run(world, 3);
+    expect(boxes.every((box) => !box.awake)).toBe(true);
+    expectStanding(boxes, 0);
+  });
+
+  it.each([
+    [15, 0],
+    [15, 0.05],
+    [20, 0.03],
+  ])('a %i-box tower with %f stagger stands and falls asleep within 10 seconds', (height, wobble) => {
+    const world = groundWorld();
+    const boxes = buildTower(world, height, wobble);
+    run(world, 10);
+    expect(boxes.every((box) => !box.awake)).toBe(true);
+    boxes.forEach((box, i) => {
+      expect(Math.abs(box.position.x - (i % 2 === 0 ? 0 : wobble)), `box ${i} x`).toBeLessThan(0.1);
+      expect(Math.abs(box.position.y - (0.5 + i)), `box ${i} y`).toBeLessThan(0.2);
+    });
+  });
+});
+
 describe('sleeping', () => {
   it('a settled 5-box tower falls asleep and stops moving', () => {
     const world = groundWorld();

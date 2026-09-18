@@ -1,11 +1,9 @@
-import type { Body, BoxShape, CircleShape } from './body';
+import type { Body, BoxShape, CircleShape, PolygonShape } from './body';
+import { ABSOLUTE_TOL, RELATIVE_TOL, clipToSlab, emitIfBelowFace } from './clip';
+import { circleVsPolygon, convexVsConvex, polygonVsCircle } from './collide-convex';
 import { clamp } from './math';
 import type { Manifold } from './manifold';
 import { Vec2 } from './vec2';
-
-// A later SAT axis replaces the current one only if clearly shallower, keeping the reference face stable.
-const RELATIVE_TOL = 0.95;
-const ABSOLUTE_TOL = 0.01;
 
 /// Fills `out` and returns true if the bodies overlap. The normal points from a to b.
 /// Touching shapes count as overlapping with zero depth. Allocation-free.
@@ -14,11 +12,49 @@ export function collide(a: Body, b: Body, out: Manifold): boolean {
   out.bodyB = b;
   out.count = 0;
   const shapeA = a.shape;
-  const shapeB = b.shape;
-  if (shapeA.kind === 'circle') {
-    return shapeB.kind === 'circle' ? circleVsCircle(a, shapeA, b, shapeB, out) : circleVsBox(a, shapeA, b, shapeB, out);
+  switch (shapeA.kind) {
+    case 'circle':
+      return collideCircleWith(a, shapeA, b, out);
+    case 'box':
+      return collideBoxWith(a, shapeA, b, out);
+    case 'polygon':
+      return collidePolygonWith(a, shapeA, b, out);
   }
-  return shapeB.kind === 'circle' ? boxVsCircle(a, shapeA, b, shapeB, out) : boxVsBox(a, shapeA, b, shapeB, out);
+}
+
+function collideCircleWith(a: Body, sa: CircleShape, b: Body, out: Manifold): boolean {
+  const sb = b.shape;
+  switch (sb.kind) {
+    case 'circle':
+      return circleVsCircle(a, sa, b, sb, out);
+    case 'box':
+      return circleVsBox(a, sa, b, sb, out);
+    case 'polygon':
+      return circleVsPolygon(a, sa, b, sb, out);
+  }
+}
+
+function collideBoxWith(a: Body, sa: BoxShape, b: Body, out: Manifold): boolean {
+  const sb = b.shape;
+  switch (sb.kind) {
+    case 'circle':
+      return boxVsCircle(a, sa, b, sb, out);
+    case 'box':
+      return boxVsBox(a, sa, b, sb, out);
+    case 'polygon':
+      return convexVsConvex(a, b, out);
+  }
+}
+
+function collidePolygonWith(a: Body, sa: PolygonShape, b: Body, out: Manifold): boolean {
+  const sb = b.shape;
+  switch (sb.kind) {
+    case 'circle':
+      return polygonVsCircle(a, sa, b, sb, out);
+    case 'box':
+    case 'polygon':
+      return convexVsConvex(a, b, out);
+  }
 }
 
 function circleVsCircle(a: Body, sa: CircleShape, b: Body, sb: CircleShape, out: Manifold): boolean {
@@ -224,35 +260,6 @@ function findIncidentEdge(inc: BoxFrame, rnx: number, rny: number, edge: Segment
   edge.y0 = cy - nx * edgeHalf;
   edge.x1 = cx - ny * edgeHalf;
   edge.y1 = cy + nx * edgeHalf;
-}
-
-// Finds the segment parameters t in [0,1] where offset d0 + (d1-d0)t stays within +-half. False if none.
-function clipToSlab(d0: number, d1: number, half: number, range: Vec2): boolean {
-  const span = d1 - d0;
-  if (span === 0) {
-    range.set(0, 1);
-    return Math.abs(d0) <= half;
-  }
-  const t0 = (-half - d0) / span;
-  const t1 = (half - d0) / span;
-  range.set(Math.max(0, Math.min(t0, t1)), Math.min(1, Math.max(t0, t1)));
-  return range.x <= range.y;
-}
-
-// Adds a contact for a point on or behind the reference face plane (n . p = planeOffset).
-function emitIfBelowFace(
-  out: Manifold,
-  px: number,
-  py: number,
-  rnx: number,
-  rny: number,
-  planeOffset: number,
-  id: number,
-): void {
-  const separation = px * rnx + py * rny - planeOffset;
-  if (separation > 0) return;
-  // Midway between the point and its projection onto the face.
-  out.addContact(px - (rnx * separation) / 2, py - (rny * separation) / 2, -separation, id);
 }
 
 function signOf(value: number): number {

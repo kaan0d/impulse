@@ -1,0 +1,3 @@
+#!/bin/sh
+# Git runs this with its own sh, from the repository root. The real work is in pre-commit.mjs so nothing here needs bash.
+exec node .githooks/pre-commit.mjs

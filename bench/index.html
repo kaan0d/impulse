@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Impulse Benchmark</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px 16px;
+        box-sizing: border-box;
+        background: #12141a;
+        color: #c8cdd8;
+        font-family: system-ui, sans-serif;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 2rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      h2 {
+        margin: 32px 0 12px;
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 24px;
+        font-variant-numeric: tabular-nums;
+      }
+      th,
+      td {
+        padding: 6px 10px;
+        border-bottom: 1px solid #3a3f4b;
+        text-align: right;
+      }
+      th:first-child,
+      td:first-child {
+        text-align: left;
+      }
+      button {
+        padding: 8px 16px;
+        border: 1px solid #3a3f4b;
+        border-radius: 6px;
+        background: #1c1f27;
+        color: inherit;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.5;
+      }
+      a {
+        color: #7fa8ff;
+      }
+      small,
+      pre {
+        color: #8a91a0;
+      }
+      pre {
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Impulse benchmark</h1>
+      <p><a href="../">Back to the demo</a></p>
+      <p><button id="run" type="button">Run again</button> <span id="status">Starting...</span></p>
+      <p><small id="env"></small></p>
+
+      <h2>Simulation step time</h2>
+      <table id="scenes">
+        <thead>
+          <tr>
+            <th>Scene</th>
+            <th>Bodies</th>
+            <th>Steps</th>
+            <th>Avg ms</th>
+            <th>p95 ms</th>
+            <th>Max ms</th>
+            <th>Peak contacts</th>
+            <th>Awake at end</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p>
+        <small>
+          Full <code>World.step</code>: contacts, solver (10 iterations), integration, sleeping. Scenes with sleeping off keep every
+          body awake so the solver stays loaded. The first 20 steps are untimed warm-up.
+        </small>
+      </p>
+
+      <h2>Broadphase: spatial hash vs brute force</h2>
+      <table id="broadphase">
+        <thead>
+          <tr>
+            <th>Bodies</th>
+            <th>Overlapping pairs</th>
+            <th>Spatial hash ms</th>
+            <th>Brute force ms</th>
+            <th>Speedup</th>
+            <th>Same pairs</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <details>
+        <summary>Raw results</summary>
+        <pre id="json"></pre>
+      </details>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

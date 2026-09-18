@@ -1,5 +1,6 @@
 import type { Body } from './body';
 import { PAIR_KEY_STRIDE, SpatialHash } from './broadphase';
+import { sweepAgainstStatics } from './ccd';
 import { collide } from './collide';
 import type { Joint } from './joint';
 import { Manifold } from './manifold';
@@ -17,14 +18,17 @@ export class World {
   // Contacts of the last detection; only the first `manifoldCount` entries are valid.
   readonly manifolds: Manifold[] = [];
   manifoldCount = 0;
+  // Stops fast bodies from tunneling through static ones; costs one sweep per fast body per step.
+  continuousCollision = true;
 
+  private readonly staticBodies: Body[] = [];
   private readonly solver = new Solver();
   private readonly sleeper = new Sleeper();
   private readonly broadphase = new SpatialHash(BROADPHASE_CELL_SIZE);
   // Manifolds of touching pairs live here between steps so their impulses can warm start the solver.
   private readonly pairs = new Map<number, Manifold>();
-  // Pair keys of jointed bodies; those pairs never collide, so links can overlap.
-  private readonly jointedPairs = new Set<number>();
+  // Pair keys of jointed bodies with how many joints join each pair; these pairs never collide, so links can overlap.
+  private readonly jointedPairs = new Map<number, number>();
   private readonly freeManifolds: Manifold[] = [];
   // Manifold offered to the next unknown pair; adopted into `pairs` only if that pair touches.
   private spare: Manifold | undefined;
@@ -32,16 +36,49 @@ export class World {
   add(body: Body): Body {
     body.id = this.bodies.length;
     this.bodies.push(body);
+    if (body.invMass === 0) this.staticBodies.push(body);
     return body;
+  }
+
+  // Topmost (most recently added) movable body under the point, or null. Static bodies are ignored.
+  bodyAt(x: number, y: number): Body | null {
+    for (let i = this.bodies.length - 1; i >= 0; i--) {
+      const body = this.bodies[i];
+      if (body.invMass !== 0 && body.containsPoint(x, y)) return body;
+    }
+    return null;
+  }
+
+  // Removes every body and joint. Settings such as gravity and continuousCollision are kept.
+  clear(): void {
+    this.bodies.length = 0;
+    this.joints.length = 0;
+    this.staticBodies.length = 0;
+    this.manifoldCount = 0;
+    this.pairs.clear();
+    this.jointedPairs.clear();
+    this.spare = undefined;
   }
 
   // Both bodies must already be in this world.
   addJoint(joint: Joint): Joint {
     this.joints.push(joint);
-    const idA = joint.bodyA.id;
-    const idB = joint.bodyB.id;
-    this.jointedPairs.add(Math.min(idA, idB) * PAIR_KEY_STRIDE + Math.max(idA, idB));
+    const key = jointPairKey(joint);
+    this.jointedPairs.set(key, (this.jointedPairs.get(key) ?? 0) + 1);
     return joint;
+  }
+
+  // The bodies wake, since whatever the joint was holding up is gone, and may collide with each other again.
+  removeJoint(joint: Joint): void {
+    const index = this.joints.indexOf(joint);
+    if (index < 0) return;
+    this.joints.splice(index, 1);
+    wake(joint.bodyA);
+    wake(joint.bodyB);
+    const key = jointPairKey(joint);
+    const remaining = (this.jointedPairs.get(key) ?? 1) - 1;
+    if (remaining > 0) this.jointedPairs.set(key, remaining);
+    else this.jointedPairs.delete(key);
   }
 
   // Semi-implicit Euler: contacts, gravity into velocity, contact solve, then position from the new velocity.
@@ -54,8 +91,11 @@ export class World {
     this.solver.solve(this.manifolds, this.manifoldCount, this.joints, 1 / dt);
     for (const body of this.bodies) {
       if (!body.isSimulated) continue;
+      const startX = body.position.x;
+      const startY = body.position.y;
       body.position.addScaled(body.velocity, dt);
       body.angle += body.angularVelocity * dt;
+      if (this.continuousCollision) sweepAgainstStatics(body, startX, startY, this.staticBodies);
     }
     this.sleeper.update(this.bodies, this.manifolds, this.manifoldCount, this.joints, dt);
   }
@@ -91,6 +131,7 @@ export class World {
       const idB = key % PAIR_KEY_STRIDE;
       const a = bodies[(key - idB) / PAIR_KEY_STRIDE];
       const b = bodies[idB];
+      if (!a.collidable || !b.collidable) continue;
 
       const known = pairs.get(key);
       const manifold = known ?? this.takeSpare(a, b);
@@ -123,6 +164,10 @@ export class World {
     manifold.reset();
     this.freeManifolds.push(manifold);
   }
+}
+
+function jointPairKey({ bodyA, bodyB }: Joint): number {
+  return Math.min(bodyA.id, bodyB.id) * PAIR_KEY_STRIDE + Math.max(bodyA.id, bodyB.id);
 }
 
 function wake(body: Body): boolean {

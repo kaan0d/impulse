@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Impulse</title>
+    <link rel="icon" href="data:," />
     <style>
       body {
         margin: 0;
@@ -18,33 +19,86 @@
         color: #c8cdd8;
         font-family: system-ui, sans-serif;
       }
-      #palette {
+      .row {
         display: flex;
+        flex-wrap: wrap;
         gap: 12px;
         align-items: center;
+        justify-content: center;
       }
-      .item {
+      .item,
+      button,
+      select {
         padding: 8px 16px;
         border: 1px solid #3a3f4b;
         border-radius: 6px;
         background: #1c1f27;
+        color: inherit;
+        font: inherit;
+      }
+      .item {
         cursor: grab;
         user-select: none;
+      }
+      button {
+        cursor: pointer;
+      }
+      label {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        cursor: pointer;
       }
       canvas {
         background: #1a1d25;
         border: 1px solid #3a3f4b;
+        max-width: 100%;
+        height: auto;
+        touch-action: none;
+      }
+      small {
+        color: #8a91a0;
+        text-align: center;
+      }
+      a {
+        color: #7fa8ff;
       }
     </style>
   </head>
   <body>
-    <div id="palette">
+    <div class="row">
+      <label>Scene <select id="scene"></select></label>
+      <button id="reset" type="button">Reset</button>
+      <button id="pause" type="button">Pause</button>
+      <button id="step" type="button">Step</button>
+      <label
+        >Speed
+        <select id="speed">
+          <option value="0.25">0.25x</option>
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+        </select>
+      </label>
+    </div>
+    <div class="row" id="palette">
       <span>Drag onto the canvas:</span>
       <div class="item" draggable="true" data-shape="circle">Circle</div>
       <div class="item" draggable="true" data-shape="box">Box</div>
+      <div class="item" draggable="true" data-shape="triangle">Triangle</div>
+      <div class="item" draggable="true" data-shape="hexagon">Hexagon</div>
     </div>
     <canvas id="view" width="900" height="600"></canvas>
-    <small>Red dots are contact points, red lines are contact normals.</small>
+    <div class="row">
+      <label><input id="show-contacts" type="checkbox" checked /> Contacts</label>
+      <label><input id="show-joints" type="checkbox" checked /> Joints</label>
+      <label><input id="continuous" type="checkbox" checked /> Continuous collision</label>
+    </div>
+    <small id="status"></small>
+    <small>
+      Grab any body with the mouse. Red dots are contact points and red lines their normals; green marks joints. Darker
+      bodies are asleep. <a href="./bench/">Benchmark</a>
+    </small>
     <script type="module" src="./src/demo/main.ts"></script>
   </body>
 </html>
