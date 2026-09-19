@@ -114,7 +114,7 @@ One commit per stage: `stage N: <summary>`. A stage is done when its tests are g
 
 `npm run bench` opens the benchmark page (`bench/index.html`, also built and served at `/impulse/bench/`). It runs deterministic scenes through the full `World.step` (contacts, 10 solver iterations, integration, sleeping) and times the broadphase against a brute-force O(n²) test.
 
-Measured on the production build (`vite build` then `vite preview`) in headless Chrome 153 driven by Playwright, Windows 11, AMD Ryzen 7 5800X. Timer resolution is 0.1 ms, and two runs differed by under 10%. Numbers from your machine will differ.
+Measured on the production build (`vite build` then `vite preview`) in headless Chrome 153 driven by Playwright, Windows 11, AMD Ryzen 7 5800X. Timer resolution is 0.1 ms, and two runs differed by up to about 12% (the pyramid), usually by less. Numbers from your machine will differ.
 
 ### Step time
 
