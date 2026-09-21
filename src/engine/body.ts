@@ -32,13 +32,28 @@ export class Body {
   angularVelocity = 0;
   friction = 0.5;
   restitution = 0;
+  // Fraction of speed lost per second, linear and spinning; zero means none.
+  linearDamping = 0;
+  angularDamping = 0;
+  // Lever arm in metres of the torque that resists rolling: a rolling coefficient times the radius.
+  rollingResistance = 0;
   // False bodies pass through everything; used for markers such as a mouse-joint cursor.
   collidable = true;
+  // Bodies meet only if each mask contains the other's category bit.
+  category = 1;
+  mask = 0xffffffff;
+  // A shared non-zero group beats the masks: positive always collides, negative never.
+  group = 0;
   // Index in `world.bodies`, assigned by `World.add`.
   id = -1;
   awake = true;
   // Seconds spent below the sleep speed thresholds.
   sleepTime = 0;
+  // Where the step began and how far the body has turned since, as cosine and sine; kept by the solver.
+  startX = 0;
+  startY = 0;
+  deltaCos = 1;
+  deltaSin = 0;
 
   readonly invMass: number;
   readonly inertia: number;
@@ -63,6 +78,38 @@ export class Body {
   // False for static and sleeping bodies: they are skipped by integration and the solver.
   get isSimulated(): boolean {
     return this.invMass !== 0 && this.awake;
+  }
+
+  resetMotion(): void {
+    this.startX = this.position.x;
+    this.startY = this.position.y;
+    this.deltaCos = 1;
+    this.deltaSin = 0;
+  }
+
+  // Adds gravity for one substep, then damping, which is stable at any rate.
+  integrateVelocity(gravity: Vec2, dt: number): void {
+    this.velocity.addScaled(gravity, dt);
+    if (this.linearDamping > 0) this.velocity.scale(1 / (1 + dt * this.linearDamping));
+    if (this.angularDamping > 0) this.angularVelocity /= 1 + dt * this.angularDamping;
+  }
+
+  // Semi-implicit Euler position update that also tracks the turn for the solver's contact separation.
+  advance(dt: number): void {
+    this.position.addScaled(this.velocity, dt);
+    const turn = this.angularVelocity * dt;
+    this.angle += turn;
+    // Small-angle rotation, renormalized: much cheaper than trig every substep.
+    const cos = this.deltaCos - turn * this.deltaSin;
+    const sin = this.deltaSin + turn * this.deltaCos;
+    const scale = 1 / Math.sqrt(cos * cos + sin * sin);
+    this.deltaCos = cos * scale;
+    this.deltaSin = sin * scale;
+  }
+
+  canCollideWith(other: Body): boolean {
+    if (this.group !== 0 && this.group === other.group) return this.group > 0;
+    return (this.mask & other.category) !== 0 && (other.mask & this.category) !== 0;
   }
 
   // True if the world-space point lies inside the shape (edges count as inside).

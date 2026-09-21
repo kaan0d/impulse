@@ -38,8 +38,8 @@ export abstract class Joint {
   abstract prepare(invDt: number): void;
   // Re-applies last step's accumulated impulse.
   abstract warmStart(): void;
-  // One sequential-impulse iteration.
-  abstract solve(): void;
+  // One iteration. Without `useBias` error-correcting bias is left out, so the relax pass adds no energy.
+  abstract solve(useBias: boolean): void;
 
   anchorA(out: Vec2): Vec2 {
     return toWorld(this.bodyA, this.localA, out);
@@ -178,14 +178,14 @@ export class RevoluteJoint extends Joint {
     this.applyImpulse(this.impulseX, this.impulseY);
   }
 
-  solve(): void {
+  solve(useBias: boolean): void {
     if (!this.active) return;
     if (this.motorEnabled) this.solveMotor();
     if (this.limitsEnabled) {
-      this.solveLowerLimit();
-      this.solveUpperLimit();
+      this.solveLowerLimit(useBias);
+      this.solveUpperLimit(useBias);
     }
-    this.solvePin();
+    this.solvePin(useBias);
   }
 
   private solveMotor(): void {
@@ -196,28 +196,28 @@ export class RevoluteJoint extends Joint {
   }
 
   // Inside the limit the bias lets the bodies close up to it; past the limit it pushes them back.
-  private solveLowerLimit(): void {
+  private solveLowerLimit(useBias: boolean): void {
     const error = this.currentAngle - this.lowerAngle;
-    const bias = (Math.max(error, 0) + BIAS_FACTOR * Math.min(error, 0)) * this.invDt;
+    const bias = (Math.max(error, 0) + (useBias ? BIAS_FACTOR * Math.min(error, 0) : 0)) * this.invDt;
     const impulse = -this.axialMass * (this.relativeSpin() + bias);
     const next = Math.max(this.lowerImpulse + impulse, 0);
     this.applySpinImpulse(next - this.lowerImpulse);
     this.lowerImpulse = next;
   }
 
-  private solveUpperLimit(): void {
+  private solveUpperLimit(useBias: boolean): void {
     const error = this.upperAngle - this.currentAngle;
-    const bias = (Math.max(error, 0) + BIAS_FACTOR * Math.min(error, 0)) * this.invDt;
+    const bias = (Math.max(error, 0) + (useBias ? BIAS_FACTOR * Math.min(error, 0) : 0)) * this.invDt;
     const impulse = -this.axialMass * (-this.relativeSpin() + bias);
     const next = Math.max(this.upperImpulse + impulse, 0);
     this.applySpinImpulse(-(next - this.upperImpulse));
     this.upperImpulse = next;
   }
 
-  private solvePin(): void {
+  private solvePin(useBias: boolean): void {
     this.updateRelativeVelocity();
-    const targetX = -(this.relativeVelocity.x + this.biasX);
-    const targetY = -(this.relativeVelocity.y + this.biasY);
+    const targetX = -(this.relativeVelocity.x + (useBias ? this.biasX : 0));
+    const targetY = -(this.relativeVelocity.y + (useBias ? this.biasY : 0));
     const px = this.inverseMass11 * targetX + this.inverseMass12 * targetY;
     const py = this.inverseMass12 * targetX + this.inverseMass22 * targetY;
     this.impulseX += px;
@@ -249,6 +249,8 @@ export class DistanceJoint extends Joint {
   // Softness terms of the spring; zero for a rigid joint.
   private gamma = 0;
   private bias = 0;
+  // Spring and slack-rope bias is physical, not error correction, so the relax pass keeps it.
+  private biasIsPhysical = false;
   private impulse = 0;
 
   // `length` defaults to the anchors' current separation.
@@ -306,10 +308,12 @@ export class DistanceJoint extends Joint {
       const softness = dt * (damping + dt * stiffness);
       this.gamma = softness > 0 ? 1 / softness : 0;
       this.bias = stretch * dt * stiffness * this.gamma;
+      this.biasIsPhysical = true;
     } else {
       this.gamma = 0;
       // A slack rope may close the gap this step but not overshoot it; otherwise pull the error out gradually.
       this.bias = slack ? stretch * invDt : BIAS_FACTOR * invDt * stretch;
+      this.biasIsPhysical = slack;
     }
     this.effectiveMass = 1 / (inverseMass + this.gamma);
   }
@@ -318,11 +322,12 @@ export class DistanceJoint extends Joint {
     if (this.active) this.applyImpulse(this.ux * this.impulse, this.uy * this.impulse);
   }
 
-  solve(): void {
+  solve(useBias: boolean): void {
     if (!this.active) return;
     this.updateRelativeVelocity();
     const speed = this.relativeVelocity.x * this.ux + this.relativeVelocity.y * this.uy;
-    const lambda = -this.effectiveMass * (speed + this.bias + this.gamma * this.impulse);
+    const bias = useBias || this.biasIsPhysical ? this.bias : 0;
+    const lambda = -this.effectiveMass * (speed + bias + this.gamma * this.impulse);
     const next = this.isRope ? Math.min(this.impulse + lambda, 0) : this.impulse + lambda;
     const applied = next - this.impulse;
     this.impulse = next;
@@ -391,6 +396,7 @@ export class MouseJoint extends Joint {
     if (this.active) this.applyImpulse(this.impulseX, this.impulseY);
   }
 
+  // A spring: its bias is physical, so the relax pass does not change it.
   solve(): void {
     if (!this.active) return;
     this.updateRelativeVelocity();

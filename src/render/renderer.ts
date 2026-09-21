@@ -1,16 +1,22 @@
-import type { Body } from '../engine/body';
+import type { Body, Shape } from '../engine/body';
 import { Vec2 } from '../engine/vec2';
 import type { World } from '../engine/world';
 
 const PIXELS_PER_METER = 50;
 const TWO_PI = Math.PI * 2;
-const DYNAMIC_COLOR = '#4f8cff';
-const SLEEPING_COLOR = '#2d4a80';
-const STATIC_COLOR = '#5c6370';
-const CONTACT_COLOR = '#ff5c5c';
+// Palette of kaandinc.com: dark metal faces with amber edges, like its faceted solids.
+const METAL = '#2a2620';
+const EDGE_COLOR = '#e8963f';
+const SLEEPING_FILL = '#1a1a18';
+const SLEEPING_EDGE = '#6b4a26';
+const STATIC_FILL = '#1f1e1b';
+const STATIC_EDGE = '#3a3833';
+const GRID_COLOR = 'rgba(235, 232, 226, 0.045)';
+const FACET_ALPHA = 0.3;
+const CONTACT_COLOR = '#ebe8e2';
 const CONTACT_DOT_RADIUS = 0.06;
 const NORMAL_LENGTH = 0.4;
-const JOINT_COLOR = '#7ee0a1';
+const JOINT_COLOR = '#b9b5ac';
 const JOINT_DOT_RADIUS = 0.07;
 
 /// Draws a World on a canvas. World origin is the bottom-left corner, y up.
@@ -46,11 +52,27 @@ export class Renderer {
     // Flip y so world units are meters with y up.
     ctx.setTransform(PIXELS_PER_METER, 0, 0, -PIXELS_PER_METER, 0, canvas.height);
     ctx.lineWidth = 2 / PIXELS_PER_METER;
-    ctx.strokeStyle = '#dbe6ff';
+    this.drawGrid();
     // Markers such as a mouse-joint cursor are not drawn.
     for (const body of this.world.bodies) if (body.collidable) this.drawBody(body);
     if (this.showJoints) this.drawJoints();
     if (this.showContacts) this.drawContacts();
+  }
+
+  // One line per meter, so scale is readable.
+  private drawGrid(): void {
+    const { ctx, canvas } = this;
+    ctx.strokeStyle = GRID_COLOR;
+    ctx.beginPath();
+    for (let x = 0; x <= canvas.width / PIXELS_PER_METER; x++) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height / PIXELS_PER_METER);
+    }
+    for (let y = 0; y <= canvas.height / PIXELS_PER_METER; y++) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width / PIXELS_PER_METER, y);
+    }
+    ctx.stroke();
   }
 
   // Debug overlay: a dot on each anchor, joined by a line (a rod shows as a line, a pin as one dot).
@@ -96,7 +118,9 @@ export class Renderer {
   private drawBody(body: Body): void {
     const { ctx } = this;
     const { shape } = body;
-    ctx.fillStyle = body.invMass === 0 ? STATIC_COLOR : body.awake ? DYNAMIC_COLOR : SLEEPING_COLOR;
+    const fixed = body.invMass === 0;
+    ctx.fillStyle = fixed ? STATIC_FILL : body.awake ? METAL : SLEEPING_FILL;
+    ctx.strokeStyle = fixed ? STATIC_EDGE : body.awake ? EDGE_COLOR : SLEEPING_EDGE;
     ctx.save();
     ctx.translate(body.position.x, body.position.y);
     ctx.rotate(body.angle);
@@ -114,6 +138,32 @@ export class Renderer {
     }
     ctx.fill();
     ctx.stroke();
+    if (!fixed) this.drawFacets(shape);
     ctx.restore();
+  }
+
+  // Faint lines from the center to each corner, echoing the faceted solids on kaandinc.com.
+  // Circles get their radius line in drawBody.
+  private drawFacets(shape: Shape): void {
+    if (shape.kind === 'circle') return;
+    const { ctx } = this;
+    ctx.globalAlpha = FACET_ALPHA;
+    ctx.beginPath();
+    if (shape.kind === 'box') {
+      // Diagonals are the spokes of a box.
+      const hw = shape.width / 2;
+      const hh = shape.height / 2;
+      ctx.moveTo(-hw, -hh);
+      ctx.lineTo(hw, hh);
+      ctx.moveTo(hw, -hh);
+      ctx.lineTo(-hw, hh);
+    } else {
+      for (const corner of shape.vertices) {
+        ctx.moveTo(0, 0);
+        ctx.lineTo(corner.x, corner.y);
+      }
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 }

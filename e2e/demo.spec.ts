@@ -147,9 +147,11 @@ test('every palette shape spawns as the right kind', async ({ page }) => {
     ['circle', 'circle'],
     ['box', 'box'],
     ['triangle', 'polygon'],
+    ['diamond', 'polygon'],
+    ['pentagon', 'polygon'],
     ['hexagon', 'polygon'],
   ];
-  for (const [index, [shape]] of expected.entries()) await dropShape(page, shape, 3 + index * 4, 9);
+  for (const [index, [shape]] of expected.entries()) await dropShape(page, shape, 2.5 + index * 2.6, 9);
   await expect.poll(async () => (await movableBodies(page)).map((body) => body.kind)).toEqual(expected.map(([, kind]) => kind));
 });
 

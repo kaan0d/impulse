@@ -1,4 +1,5 @@
 import type { Body } from './body';
+import type { Vec2 } from './vec2';
 
 /// A fast body can step over thin static geometry between two frames. This sweeps the body's inscribed
 /// circle along its step and stops the body where that circle first meets a static surface. The velocity is
@@ -10,17 +11,24 @@ export function sweepAgainstStatics(body: Body, startX: number, startY: number, 
   if (statics.length === 0 || dx * dx + dy * dy <= core * core) return;
 
   let first = 1;
-  for (const wall of statics) first = Math.min(first, entryFraction(wall, startX, startY, dx, dy, core));
+  for (const wall of statics) {
+    if (body.canCollideWith(wall)) first = Math.min(first, entryFraction(wall, startX, startY, dx, dy, core));
+  }
   if (first < 1) body.position.set(startX + dx * first, startY + dy * first);
 }
 
 // Fraction of the step at which a point moving from (x0, y0) by (dx, dy) reaches the wall grown by `radius`.
 // Returns 1 for no hit, and also when the point starts inside (the solver handles existing overlap).
-function entryFraction(wall: Body, x0: number, y0: number, dx: number, dy: number, radius: number): number {
+// On a hit, `normal` (if given) receives the outward world-space surface normal at the entry point.
+export function entryFraction(wall: Body, x0: number, y0: number, dx: number, dy: number, radius: number, normal?: Vec2): number {
   const { shape } = wall;
   const relX = x0 - wall.position.x;
   const relY = y0 - wall.position.y;
-  if (shape.kind === 'circle') return segmentVsCircle(relX, relY, dx, dy, shape.radius + radius);
+  if (shape.kind === 'circle') {
+    const t = segmentVsCircle(relX, relY, dx, dy, shape.radius + radius);
+    if (normal && t < 1) normal.set(relX + dx * t, relY + dy * t).scale(1 / (shape.radius + radius));
+    return t;
+  }
 
   const cos = Math.cos(wall.angle);
   const sin = Math.sin(wall.angle);
@@ -35,18 +43,21 @@ function entryFraction(wall: Body, x0: number, y0: number, dx: number, dy: numbe
     const hx = shape.width / 2 + radius;
     const hy = shape.height / 2 + radius;
     const inside = clipPlane(1, 0, hx, lx, ly, ldx, ldy) && clipPlane(-1, 0, hx, lx, ly, ldx, ldy) && clipPlane(0, 1, hy, lx, ly, ldx, ldy) && clipPlane(0, -1, hy, lx, ly, ldx, ldy);
-    return inside ? hitFraction() : 1;
+    return inside ? hitFraction(wall, normal) : 1;
   }
   for (let i = 0; i < shape.vertices.length; i++) {
     const n = shape.normals[i];
     if (!clipPlane(n.x, n.y, n.x * shape.vertices[i].x + n.y * shape.vertices[i].y + radius, lx, ly, ldx, ldy)) return 1;
   }
-  return hitFraction();
+  return hitFraction(wall, normal);
 }
 
 // Running entry and exit fractions of the segment against the planes clipped so far.
 let enter = 0;
 let exit = 0;
+// Local-frame normal of the plane that set `enter`.
+let enterNx = 0;
+let enterNy = 0;
 
 // Clips the segment against the half-space n . p <= offset. False when the segment lies entirely outside it.
 function clipPlane(nx: number, ny: number, offset: number, x0: number, y0: number, dx: number, dy: number): boolean {
@@ -54,13 +65,23 @@ function clipPlane(nx: number, ny: number, offset: number, x0: number, y0: numbe
   const rate = nx * dx + ny * dy;
   if (rate === 0) return distance <= 0;
   const t = -distance / rate;
-  if (rate < 0) enter = Math.max(enter, t);
-  else exit = Math.min(exit, t);
+  if (rate >= 0) exit = Math.min(exit, t);
+  else if (t > enter) {
+    enter = t;
+    enterNx = nx;
+    enterNy = ny;
+  }
   return true;
 }
 
-function hitFraction(): number {
-  return enter >= 0 && enter < 1 && enter <= exit ? enter : 1;
+function hitFraction(wall: Body, normal?: Vec2): number {
+  if (!(enter >= 0 && enter < 1 && enter <= exit)) return 1;
+  if (normal) {
+    const cos = Math.cos(wall.angle);
+    const sin = Math.sin(wall.angle);
+    normal.set(cos * enterNx - sin * enterNy, sin * enterNx + cos * enterNy);
+  }
+  return enter;
 }
 
 function segmentVsCircle(x0: number, y0: number, dx: number, dy: number, radius: number): number {

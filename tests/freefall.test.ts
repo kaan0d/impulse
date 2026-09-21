@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Body } from '../src/engine/body';
+import { SUBSTEPS } from '../src/engine/solver';
 import { FIXED_DT } from '../src/engine/stepper';
 import { World } from '../src/engine/world';
 
@@ -23,9 +24,10 @@ describe('free fall', () => {
     expect(body.velocity.x).toBe(2);
   });
 
-  it('position matches the exact semi-implicit Euler sum', () => {
+  it('position matches the exact semi-implicit Euler sum over the substeps', () => {
     const body = fall(STEPS);
-    const expectedY = 100 - G * FIXED_DT ** 2 * ((STEPS * (STEPS + 1)) / 2);
+    const substeps = STEPS * SUBSTEPS;
+    const expectedY = 100 - G * (FIXED_DT / SUBSTEPS) ** 2 * ((substeps * (substeps + 1)) / 2);
     expect(body.position.y).toBeCloseTo(expectedY, 9);
   });
 

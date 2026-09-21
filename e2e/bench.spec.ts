@@ -12,7 +12,7 @@ test('the benchmark page runs to completion and both broadphases agree', async (
   await expect(page).toHaveTitle('Impulse Benchmark');
   await page.waitForFunction(() => document.body.dataset.done === 'true', undefined, { timeout: 100_000 });
 
-  await expect(page.locator('#scenes tbody tr')).toHaveCount(5);
+  await expect(page.locator('#scenes tbody tr')).toHaveCount(6);
   await expect(page.locator('#broadphase tbody tr')).toHaveCount(5);
   const samePairs = await page.locator('#broadphase tbody tr td:last-child').allTextContents();
   expect(samePairs).toEqual(['yes', 'yes', 'yes', 'yes', 'yes']);

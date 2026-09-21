@@ -13,6 +13,8 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}/impulse/`,
     // The installed Google Chrome, so no browser download is needed.
     channel: 'chrome',
+    // Tall enough for the whole demo, so mouse tests never land below the fold.
+    viewport: { width: 1280, height: 1000 },
     trace: 'retain-on-failure',
   },
   webServer: {
