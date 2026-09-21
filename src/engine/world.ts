@@ -4,6 +4,7 @@ import { sweepAgainstStatics } from './ccd';
 import { collide } from './collide';
 import type { Joint } from './joint';
 import { Manifold } from './manifold';
+import { queryAABB, raycast, type RayHit } from './query';
 import { Sleeper } from './sleeper';
 import { Solver } from './solver';
 import { Vec2 } from './vec2';
@@ -49,6 +50,16 @@ export class World {
     return null;
   }
 
+  // Collidable bodies whose bounding box overlaps the given box, static ones included.
+  boundsOverlapping(minX: number, minY: number, maxX: number, maxY: number, out: Body[] = []): Body[] {
+    return queryAABB(this.bodies, minX, minY, maxX, maxY, out);
+  }
+
+  // Closest body the segment crosses whose category is in `mask`, or null. Bodies holding the start are skipped.
+  raycast(x0: number, y0: number, x1: number, y1: number, mask = 0xffffffff): RayHit | null {
+    return raycast(this.bodies, x0, y0, x1, y1, mask);
+  }
+
   // Removes every body and joint. Settings such as gravity and continuousCollision are kept.
   clear(): void {
     this.bodies.length = 0;
@@ -81,21 +92,15 @@ export class World {
     else this.jointedPairs.delete(key);
   }
 
-  // Semi-implicit Euler: contacts, gravity into velocity, contact solve, then position from the new velocity.
+  // Detects contacts once, lets the solver run its substeps, then catches fast bodies and updates sleep.
   step(dt: number): void {
     this.detectCollisions();
-    for (const body of this.bodies) {
-      if (!body.isSimulated) continue;
-      body.velocity.addScaled(this.gravity, dt);
-    }
-    this.solver.solve(this.manifolds, this.manifoldCount, this.joints, 1 / dt);
-    for (const body of this.bodies) {
-      if (!body.isSimulated) continue;
-      const startX = body.position.x;
-      const startY = body.position.y;
-      body.position.addScaled(body.velocity, dt);
-      body.angle += body.angularVelocity * dt;
-      if (this.continuousCollision) sweepAgainstStatics(body, startX, startY, this.staticBodies);
+    this.solver.prepare(this.bodies, this.manifolds, this.manifoldCount, dt);
+    this.solver.solve(this.bodies, this.gravity, this.joints, dt);
+    if (this.continuousCollision) {
+      for (const body of this.bodies) {
+        if (body.isSimulated) sweepAgainstStatics(body, body.startX, body.startY, this.staticBodies);
+      }
     }
     this.sleeper.update(this.bodies, this.manifolds, this.manifoldCount, this.joints, dt);
   }
@@ -131,7 +136,7 @@ export class World {
       const idB = key % PAIR_KEY_STRIDE;
       const a = bodies[(key - idB) / PAIR_KEY_STRIDE];
       const b = bodies[idB];
-      if (!a.collidable || !b.collidable) continue;
+      if (!a.collidable || !b.collidable || !a.canCollideWith(b)) continue;
 
       const known = pairs.get(key);
       const manifold = known ?? this.takeSpare(a, b);

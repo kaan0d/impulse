@@ -1,4 +1,5 @@
 import type { Body } from './body';
+import { writeBounds } from './bounds';
 
 // Pair key = smaller id * stride + larger id. 2^26 keeps the key an exact integer for up to 67M bodies.
 export const PAIR_KEY_STRIDE = 2 ** 26;
@@ -40,46 +41,7 @@ export class SpatialHash {
 
   private updateBounds(bodies: Body[]): void {
     if (this.bounds.length < bodies.length * 4) this.bounds = new Float64Array(bodies.length * 8);
-    const { bounds } = this;
-    for (const body of bodies) {
-      const at = body.id * 4;
-      const { shape, position } = body;
-      if (shape.kind === 'circle') {
-        bounds[at] = position.x - shape.radius;
-        bounds[at + 1] = position.y - shape.radius;
-        bounds[at + 2] = position.x + shape.radius;
-        bounds[at + 3] = position.y + shape.radius;
-        continue;
-      }
-      const cos = Math.cos(body.angle);
-      const sin = Math.sin(body.angle);
-      if (shape.kind === 'box') {
-        const halfX = (shape.width * Math.abs(cos) + shape.height * Math.abs(sin)) / 2;
-        const halfY = (shape.width * Math.abs(sin) + shape.height * Math.abs(cos)) / 2;
-        bounds[at] = position.x - halfX;
-        bounds[at + 1] = position.y - halfY;
-        bounds[at + 2] = position.x + halfX;
-        bounds[at + 3] = position.y + halfY;
-        continue;
-      }
-      // Polygon: extremes of the rotated vertices.
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      for (const vertex of shape.vertices) {
-        const x = cos * vertex.x - sin * vertex.y;
-        const y = sin * vertex.x + cos * vertex.y;
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
-      }
-      bounds[at] = position.x + minX;
-      bounds[at + 1] = position.y + minY;
-      bounds[at + 2] = position.x + maxX;
-      bounds[at + 3] = position.y + maxY;
-    }
+    for (const body of bodies) writeBounds(body, this.bounds, body.id * 4);
   }
 
   // Counting sort of (cell, body) entries into hash buckets, keeping body ids ascending inside each bucket.

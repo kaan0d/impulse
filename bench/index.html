@@ -5,28 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Impulse Benchmark</title>
     <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="../src/theme.css" />
     <style>
       body {
-        margin: 0;
-        min-height: 100vh;
-        padding: 24px 16px;
-        box-sizing: border-box;
-        background: #12141a;
-        color: #c8cdd8;
-        font-family: system-ui, sans-serif;
+        padding: 40px 24px 64px;
       }
       main {
         max-width: 960px;
         margin: 0 auto;
+        line-height: 1.75;
       }
       h1 {
         margin: 0 0 8px;
         font-size: 2rem;
         font-weight: 700;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
       }
       h2 {
-        margin: 32px 0 12px;
+        margin: 48px 0 16px;
         font-size: 1.25rem;
         font-weight: 600;
       }
@@ -34,39 +30,26 @@
         width: 100%;
         border-collapse: collapse;
         margin-bottom: 24px;
+        font: 0.8125rem var(--font-mono);
         font-variant-numeric: tabular-nums;
+      }
+      th {
+        color: var(--text-dim);
+        font-weight: 500;
       }
       th,
       td {
-        padding: 6px 10px;
-        border-bottom: 1px solid #3a3f4b;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line-strong);
         text-align: right;
       }
       th:first-child,
       td:first-child {
         text-align: left;
       }
-      button {
-        padding: 8px 16px;
-        border: 1px solid #3a3f4b;
-        border-radius: 6px;
-        background: #1c1f27;
-        color: inherit;
-        cursor: pointer;
-      }
-      button:disabled {
-        cursor: default;
-        opacity: 0.5;
-      }
-      a {
-        color: #7fa8ff;
-      }
-      small,
-      pre {
-        color: #8a91a0;
-      }
       pre {
         overflow-x: auto;
+        color: var(--text-dim);
       }
     </style>
   </head>

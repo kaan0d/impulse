@@ -6,15 +6,18 @@ Live demo: https://kaan0d.github.io/impulse/ (live once the deploy workflow has 
 
 Benchmark: https://kaan0d.github.io/impulse/bench/
 
+![Impulse demo: a pile of circles, boxes and polygons resting in a walled container](docs/demo.png)
+
 ## What it does
 
 - **Bodies:** circles, boxes and convex polygons (up to 16 vertices), dynamic or static (`mass = Infinity`).
 - **Collision:** SAT with reference-face clipping for boxes and polygons (up to two contacts), closest-feature tests for circles, and a spatial-hash broadphase.
-- **Contacts:** sequential impulses with friction, restitution, accumulated impulse clamping, warm starting, and a 2-point block solver for stable stacks.
+- **Contacts:** a soft-step solver (after Box2D v3): 4 substeps per step, soft contact constraints, an unbiased relax pass, warm starting, and a restitution pass at the end. Friction, restitution, rolling resistance and linear and angular damping.
+- **Queries and filtering:** raycast against every shape, box overlap query, and per-body category, mask and group filters.
 - **Sleeping:** touching bodies form islands that fall asleep together and wake on contact or when a joint partner wakes.
 - **Continuous collision:** fast bodies cannot tunnel through static geometry.
 - **Joints:** pin (with angle limits and a motor), rod, spring, rope, and a mouse joint for grabbing.
-- **Demo:** several scenes, drag-and-drop spawning, grabbing with the mouse, pause, step, reset, speed control, and debug overlays.
+- **Demo:** several scenes, drag-and-drop spawning of six shapes, grabbing with the mouse, pause, step, reset, speed control, and debug overlays.
 
 ## Rules
 
@@ -58,7 +61,11 @@ Unit tests (Vitest) and browser tests (Playwright) run against the engine and th
 | Physics never sees frame time | Different frame rates give the same state as stepping by hand |
 | Deterministic | Reruns are bit-identical for towers, polygon piles, joint chains and all joint features together, sleep flags included |
 | Collision is right | Known overlaps give the expected normal, depth and points for every shape pair. Polygons agree with the box-box path on 4000 random pairs, and circle-polygon depth matches an independent distance computation |
-| Solver behaves physically | Bodies rest with penetration under 0.01, elastic collisions conserve energy and momentum to 1e-9, friction decelerates at μg, resting impulses equal the weight, impulses never pull |
+| Solver behaves physically | Bodies rest with penetration under 0.01, elastic collisions conserve energy and momentum to 1e-9, friction decelerates at μg, resting impulses equal the weight per substep, impulses never pull |
+| Bounces are right | A ball rebounds to within 2% of its drop height, because restitution reads the speed before gravity is added |
+| Rolling and damping | A rolling ball slows at (2/3)·r_roll·g/r, damping scales speed by 1/(1 + h·d) per substep |
+| Queries and filters | Raycast hits and normals match the analytic circle, box and hexagon; masks, groups and continuous collision honour the filters |
+| Big piles sleep | A pile of 500 mixed bodies falls fully asleep in about 7.5 s (5.2 s with rolling resistance) |
 | Stacks stand and sleep | 10-, 15- and 20-box towers stand, and they fall asleep within seconds (a 10-box tower in under 3 s) |
 | Broadphase is exact | The spatial hash finds the same pairs as brute force across five cell sizes, with polygons included |
 | Joints hold | A pin pendulum's period is within 2% of the physics formula, limits and motor torque caps hold, a spring's deflection and frequency match `g/ω²` and `f`, ropes go slack and taut |
@@ -71,9 +78,9 @@ Several tests were also checked by breaking the code on purpose and confirming t
 Not covered:
 
 - Determinism was only checked on one machine's Node and Chrome. Other browsers or CPUs may differ in `Math.sin` and `Math.cos`.
-- A pile of 500 mixed bodies never falls asleep in the 8 s measured, so sleeping helps stacks and pyramids, not big chaotic piles.
+- Contact stiffness (40 Hz) was tuned with the stacking and sleep tests: 60 Hz sags a 20-box tower less but jitters, and 45 Hz fails two sleep tests. A 20-box tower still compresses by a few centimetres.
+- Contacts exist only for overlapping bodies. Continuous collision stops a fast body exactly at a wall, with no overlap, so whether the solver sees a contact next step depends on floating point rounding. Speculative contacts would remove this.
 - Continuous collision only stops bodies at static geometry. Two fast dynamic bodies can still pass through each other.
-- A ball bouncing under gravity comes back about 3.5% too high at 1/60 s, because gravity is added before the impact solve.
 - The deploy workflow has not run yet, and the benchmark numbers are from one machine.
 
 ## Roadmap
@@ -94,6 +101,10 @@ One commit per stage: `stage N: <summary>`. A stage is done when its tests are g
 | 10. Joint upgrades | Angle limits, motors, springs, ropes, mouse joint, joint removal | Limits and torque caps hold, spring frequency and deflection match theory, rope slack behaviour |
 | 11. Interactive demo | Scene picker, mouse grabbing, pause, step, reset, speed, overlay toggles, more scenes | Point queries and world reset; every scene simulates cleanly |
 | 12. Automation | Pre-commit hook, CI on pull requests, Playwright browser tests | 14 browser tests against the built site |
+| 13. Bounce fix | Restitution reads the speed before gravity | A ball rebounds within 2% of its drop height |
+| 14. Queries and filtering | Raycast, box overlap query, category, mask and group filters | Analytic ray hits, filters honoured by contacts and continuous collision |
+| 15. Soft-step solver | Substeps, soft contacts, relax pass, restitution pass; block solver and position projection removed | All earlier tests still pass, including 20-box towers and joint tolerances |
+| 16. Damping and rolling resistance | Linear and angular damping, warm-started rolling resistance, circle anchors that do not spin | Rolling ball matches theory, 500-body pile falls asleep |
 
 ## Status
 
@@ -109,6 +120,10 @@ One commit per stage: `stage N: <summary>`. A stage is done when its tests are g
 - [x] Stage 10
 - [x] Stage 11
 - [x] Stage 12
+- [x] Stage 13
+- [x] Stage 14
+- [x] Stage 15
+- [x] Stage 16
 
 ## Benchmark results
 
@@ -120,16 +135,17 @@ Measured on the production build (`vite build` then `vite preview`) in headless 
 
 | Scene | Bodies | Steps | Avg ms | p95 ms | Max ms | Peak contacts | Awake at end |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pyramid, 210 boxes | 210 | 240 | 0.86 | 1.10 | 1.50 | 403 | 210 |
-| Pyramid, 210 boxes, sleeping on | 210 | 240 | 0.29 | 0.90 | 1.20 | 403 | 0 |
-| Pile, 500 bodies | 500 | 480 | 1.47 | 1.80 | 2.50 | 986 | 500 |
-| Pile, 500 bodies, sleeping on | 500 | 480 | 1.39 | 1.70 | 2.00 | 986 | 500 |
-| Pile, 1000 bodies | 1000 | 300 | 2.59 | 3.90 | 4.70 | 2116 | 1000 |
+| Pyramid, 210 boxes | 210 | 240 | 0.92 | 1.10 | 2.50 | 401 | 210 |
+| Pyramid, 210 boxes, sleeping on | 210 | 240 | 0.15 | 0.90 | 1.00 | 401 | 0 |
+| Pile, 500 bodies | 500 | 480 | 1.33 | 1.80 | 3.00 | 858 | 500 |
+| Pile, 500 bodies, sleeping on | 500 | 480 | 1.11 | 1.60 | 1.80 | 857 | 0 |
+| Pile, 500 bodies, sleeping on, rolling resistance | 500 | 600 | 0.60 | 1.50 | 2.20 | 824 | 0 |
+| Pile, 1000 bodies | 1000 | 300 | 2.18 | 3.30 | 4.10 | 1896 | 1000 |
 
 - Scenes without "sleeping on" keep every body awake, so they measure the solver under load. The 1/60 s budget is 16.7 ms.
-- The pyramid falls fully asleep and its cost drops by about 3x. The 500-body pile never falls asleep in the 8 s measured, so sleeping does not help there.
+- Both the pyramid and the 500-body pile fall fully asleep now. The pyramid's cost drops by about 6x, and the pile's average by about 17% over 8 s (rolling resistance: 10 s, average 0.60 ms). Before stage 16 the pile never fell asleep.
 - The first 20 steps of each scene are untimed warm-up.
-- An earlier version of this table (30 solver iterations, headed Chrome, before the block solver) showed 3.3 ms for the pyramid and 10.4 ms for 1000 bodies. Both the iteration count and the browser mode changed, so the difference is not attributable to one cause.
+- Stage 15 replaced the 10-iteration solver with 4 substeps (soft contacts, relax pass). The pyramid took 0.86 ms and the 1000-body pile 2.59 ms before it; the numbers above are from the same machine and browser. An earlier version of this table (30 solver iterations, headed Chrome, before the block solver) showed 3.3 ms for the pyramid and 10.4 ms for 1000 bodies. Both the iteration count and the browser mode changed, so the difference is not attributable to one cause.
 
 ### Broadphase
 

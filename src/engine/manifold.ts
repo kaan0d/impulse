@@ -13,12 +13,14 @@ export class Manifold {
   // Accumulated solver impulses, reused as the next step's warm start.
   readonly normalImpulses = [0, 0];
   readonly tangentImpulses = [0, 0];
+  readonly rollingImpulses = [0, 0];
   count = 0;
 
   private prevCount = 0;
   private readonly prevIds = [0, 0];
   private readonly prevNormalImpulses = [0, 0];
   private readonly prevTangentImpulses = [0, 0];
+  private readonly prevRollingImpulses = [0, 0];
 
   constructor(
     public bodyA: Body,
@@ -31,6 +33,7 @@ export class Manifold {
     this.ids[this.count] = id;
     this.normalImpulses[this.count] = 0;
     this.tangentImpulses[this.count] = 0;
+    this.rollingImpulses[this.count] = 0;
     this.count++;
   }
 
@@ -41,6 +44,7 @@ export class Manifold {
       this.prevIds[i] = this.ids[i];
       this.prevNormalImpulses[i] = this.normalImpulses[i];
       this.prevTangentImpulses[i] = this.tangentImpulses[i];
+      this.prevRollingImpulses[i] = this.rollingImpulses[i];
     }
   }
 
@@ -51,6 +55,7 @@ export class Manifold {
         if (this.ids[i] !== this.prevIds[j]) continue;
         this.normalImpulses[i] = this.prevNormalImpulses[j];
         this.tangentImpulses[i] = this.prevTangentImpulses[j];
+        this.rollingImpulses[i] = this.prevRollingImpulses[j];
         break;
       }
     }

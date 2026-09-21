@@ -1,0 +1,57 @@
+/* Shared look for the demo and benchmark pages. Same tokens as kaandinc.com. */
+
+@font-face { font-family: 'Geist'; src: url('./fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Geist Mono'; src: url('./fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+
+:root {
+  color-scheme: dark;
+  --bg: #0a0a09;
+  --bg-2: #121211;
+  --bg-3: #1a1a18;
+  --text: #ebe8e2;
+  --text-dim: #8f8c85;
+  --line: #23221f;
+  --line-strong: #3a3833;
+  --accent: #e8963f;
+  --accent-soft: #6b4a26;
+  --metal: #2a2620;
+  --font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--accent); color: var(--bg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+a { color: var(--text); text-decoration-color: var(--accent-soft); text-underline-offset: 3px; }
+a:hover { color: var(--accent); }
+
+button, select {
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: 500 0.8125rem var(--font-mono);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+button:hover, select:hover { border-color: var(--accent); }
+button:disabled { cursor: default; opacity: 0.5; }
+
+small, .dim { color: var(--text-dim); }
+
+.wordmark { font: 600 1.05rem var(--font-mono); letter-spacing: -0.02em; }
+.wordmark::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 8px; background: var(--accent); transform: rotate(45deg); }

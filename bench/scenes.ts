@@ -58,7 +58,8 @@ function pyramid(rows: number): World {
 }
 
 // Mixed circles and boxes dropped in staggered layers into a walled container 20 m wide.
-function pile(count: number): World {
+// A nonzero `rolling` gives every body that rolling resistance, so a box cannot rock on a ball forever.
+export function pile(count: number, rolling = 0): World {
   const random = makeRandom(42);
   const world = groundedWorld();
   world.add(Body.box(1, 80, Infinity, -10.5, 40));
@@ -70,6 +71,7 @@ function pile(count: number): World {
     const body =
       random() < 0.4 ? Body.circle(0.3 + random() * 0.15, 1, x, y) : Body.box(0.5 + random() * 0.4, 0.5 + random() * 0.4, 1, x, y);
     body.angle = random() * Math.PI;
+    body.rollingResistance = rolling;
     world.add(body);
   }
   return world;
@@ -80,6 +82,7 @@ export const scenes: Scene[] = [
   { name: 'Pyramid, 210 boxes, sleeping on', build: () => pyramid(20), steps: 240, sleeping: true },
   { name: 'Pile, 500 bodies', build: () => pile(500), steps: 480, sleeping: false },
   { name: 'Pile, 500 bodies, sleeping on', build: () => pile(500), steps: 480, sleeping: true },
+  { name: 'Pile, 500 bodies, sleeping on, rolling resistance', build: () => pile(500, 0.03), steps: 600, sleeping: true },
   { name: 'Pile, 1000 bodies', build: () => pile(1000), steps: 300, sleeping: false },
 ];
 

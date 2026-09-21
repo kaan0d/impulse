@@ -2,56 +2,43 @@ import type { Body } from './body';
 import type { Joint } from './joint';
 import { clamp } from './math';
 import type { Manifold } from './manifold';
+import type { Vec2 } from './vec2';
 
-// Box2D Lite default; the 2-point block solver keeps tall stacks converging at this count.
-const VELOCITY_ITERATIONS = 10;
-// Above this ratio a 2-point block is too ill-conditioned to invert, so its points are solved one by one.
-const MAX_BLOCK_CONDITION = 1000;
+// Each step is split into this many substeps; contact impulses are stored per substep.
+export const SUBSTEPS = 4;
 // Slower impacts are treated as inelastic, so resting contacts do not jitter.
 const RESTITUTION_THRESHOLD = 1;
-// Overlap tolerated before position correction starts, keeps contacts alive at rest.
-const PENETRATION_SLOP = 0.005;
-// Fraction of the excess overlap removed per position pass.
-const CORRECTION_FACTOR = 0.2;
-const POSITION_PASSES = 3;
+// Two-point contacts need a few sweeps for the bounce to reach the requested speed.
+const RESTITUTION_PASSES = 6;
+// Contact spring: stiff enough to hold stacks, soft enough to absorb one step of overlap smoothly.
+const CONTACT_HERTZ = 40;
+const CONTACT_DAMPING_RATIO = 10;
+// Static geometry cannot give way, so its contacts are stiffer.
+const STATIC_STIFFNESS_SCALE = 2;
+// Fastest speed at which overlap is pushed apart, so deep overlaps do not explode.
+const MAX_PUSH_SPEED = 3;
 
-/// Sequential-impulse solver for contacts and joints, after Box2D Lite. Pools its constraints; no per-step allocation.
+interface Softness {
+  biasRate: number;
+  massScale: number;
+  impulseScale: number;
+}
+
+/// Soft-step solver for contacts and joints: substeps of gravity, warm start, biased solve, position update
+/// and an unbiased relax pass, then restitution. Pools its constraints; no per-step allocation.
 export class Solver {
   private readonly constraints: ContactConstraint[] = [];
   private count = 0;
+  private readonly dynamicSoftness: Softness = { biasRate: 0, massScale: 1, impulseScale: 0 };
+  private readonly staticSoftness: Softness = { biasRate: 0, massScale: 1, impulseScale: 0 };
 
-  // Changes body velocities so joints hold and contacts stop approaching, then pushes overlapping bodies apart.
-  // Accumulated impulses persist in the manifolds and joints and warm start the next step.
-  solve(manifolds: Manifold[], manifoldCount: number, joints: Joint[], invDt: number): void {
-    for (const joint of joints) joint.prepare(invDt);
-    this.prepare(manifolds, manifoldCount);
-    const { constraints, count } = this;
-    // All biases read the incoming velocities, so warm start only after every constraint is prepared.
-    for (const joint of joints) joint.warmStart();
-    for (let i = 0; i < count; i++) constraints[i].warmStart();
-    for (let iteration = 0; iteration < VELOCITY_ITERATIONS; iteration++) {
-      for (const joint of joints) joint.solve();
-      for (let i = 0; i < count; i++) {
-        const constraint = constraints[i];
-        if (constraint.isBlockFollower) continue;
-        constraint.solveFriction();
-        const partner = constraint.blockPartner;
-        if (partner) {
-          partner.solveFriction();
-          constraint.solveNormalBlock(partner);
-        } else {
-          constraint.solveNormal();
-        }
-      }
-    }
-    for (let i = 0; i < count; i++) constraints[i].storeImpulses();
-    // Contact by contact, each pass sees the shifts of the previous ones, so a stack's shared compression resolves.
-    for (let pass = 0; pass < POSITION_PASSES; pass++) {
-      for (let i = 0; i < count; i++) constraints[i].correctPosition();
-    }
-  }
+  // Reads the incoming velocities into the contacts; call before `solve`, so restitution sees the impact speed.
+  prepare(bodies: Body[], manifolds: Manifold[], manifoldCount: number, dt: number): void {
+    const substep = dt / SUBSTEPS;
+    for (const body of bodies) body.resetMotion();
+    setSoftness(this.dynamicSoftness, CONTACT_HERTZ, CONTACT_DAMPING_RATIO, substep);
+    setSoftness(this.staticSoftness, CONTACT_HERTZ * STATIC_STIFFNESS_SCALE, CONTACT_DAMPING_RATIO, substep);
 
-  private prepare(manifolds: Manifold[], manifoldCount: number): void {
     let count = 0;
     for (let i = 0; i < manifoldCount; i++) {
       const manifold = manifolds[i];
@@ -61,16 +48,57 @@ export class Solver {
           constraint = new ContactConstraint(manifold);
           this.constraints.push(constraint);
         }
-        constraint.prepare(manifold, j);
+        const isStatic = manifold.bodyA.invMass === 0 || manifold.bodyB.invMass === 0;
+        constraint.prepare(manifold, j, isStatic ? this.staticSoftness : this.dynamicSoftness, 1 / substep);
         count++;
       }
-      if (manifold.count === 2) this.constraints[count - 2].linkBlock(this.constraints[count - 1]);
     }
     this.count = count;
   }
+
+  // Advances velocities and positions by `dt` with gravity, joints and contacts. Ends with the bounce pass.
+  // Accumulated impulses persist in the manifolds and joints and warm start the next step.
+  solve(bodies: Body[], gravity: Vec2, joints: Joint[], dt: number): void {
+    const substep = dt / SUBSTEPS;
+    const { constraints, count } = this;
+    for (let i = 0; i < SUBSTEPS; i++) {
+      for (const joint of joints) joint.prepare(1 / substep);
+      for (const body of bodies) if (body.isSimulated) body.integrateVelocity(gravity, substep);
+      for (const joint of joints) joint.warmStart();
+      for (let c = 0; c < count; c++) constraints[c].warmStart();
+      this.iterate(joints, true);
+
+      for (const body of bodies) if (body.isSimulated) body.advance(substep);
+      // Joint anchors moved with the bodies, so re-read them before the relax pass.
+      for (const joint of joints) joint.prepare(1 / substep);
+      this.iterate(joints, false);
+    }
+    for (let pass = 0; pass < RESTITUTION_PASSES; pass++) {
+      for (let c = 0; c < count; c++) constraints[c].applyRestitution();
+    }
+    for (let c = 0; c < count; c++) constraints[c].storeImpulses();
+  }
+
+  // With `useBias` the solve also pushes overlap and joint error out; without it bias energy is removed.
+  private iterate(joints: Joint[], useBias: boolean): void {
+    const { constraints, count } = this;
+    for (const joint of joints) joint.solve(useBias);
+    for (let c = 0; c < count; c++) constraints[c].solve(useBias);
+  }
 }
 
-/// One contact point: a non-penetration constraint plus a Coulomb friction constraint.
+// Soft-constraint coefficients for a spring of the given stiffness and damping at substep length `h`.
+function setSoftness(out: Softness, hertz: number, dampingRatio: number, h: number): void {
+  const omega = 2 * Math.PI * hertz;
+  const a1 = 2 * dampingRatio + h * omega;
+  const a2 = h * omega * a1;
+  const a3 = 1 / (1 + a2);
+  out.biasRate = omega / a1;
+  out.massScale = a2 * a3;
+  out.impulseScale = a3;
+}
+
+/// One contact point: a soft non-penetration constraint plus a Coulomb friction constraint.
 class ContactConstraint {
   private bodyA: Body;
   private bodyB: Body;
@@ -78,43 +106,40 @@ class ContactConstraint {
   // Normal points from bodyA toward bodyB; the friction tangent is (ny, -nx).
   private nx = 0;
   private ny = 0;
+  // Overlap when the step began; the current separation follows from how far the anchors have moved since.
   private depth = 0;
-  // Body positions when the contact was prepared, to tell how far corrections have already moved them.
-  private startAx = 0;
-  private startAy = 0;
-  private startBx = 0;
-  private startBy = 0;
   private friction = 0;
-  // Contact offsets from each body's center of mass.
+  private restitution = 0;
+  // Largest torque per unit of normal impulse that may resist relative spin.
+  private rollingResistance = 0;
+  private rollingMass = 0;
+  private rollingImpulse = 0;
+  // Contact offsets from each body's center of mass, fixed for the step.
   private rAx = 0;
   private rAy = 0;
   private rBx = 0;
   private rBy = 0;
+  // A circle's contact point stays under its center as it spins, so its anchor must not turn with it.
+  private turnsA = true;
+  private turnsB = true;
   private normalMass = 0;
   private tangentMass = 0;
-  // Target normal speed after the solve: bounce speed, or 0 for inelastic contact.
-  private restitutionBias = 0;
-  // Accumulated over the iterations of one step and clamped, never the per-iteration delta.
+  // Normal speed before gravity and solving; negative means approaching. Drives the bounce.
+  private approachSpeed = 0;
+  private invSubstep = 0;
+  private softness!: Softness;
+  // Accumulated over the substeps and clamped, never the per-iteration delta.
   private normalImpulse = 0;
   private tangentImpulse = 0;
-
-  // A 2-point manifold solves both normal impulses together: the first point leads, the second follows.
-  blockPartner: ContactConstraint | null = null;
-  isBlockFollower = false;
-  // Normal effective-mass matrix of the block and its inverse (symmetric).
-  private k11 = 0;
-  private k12 = 0;
-  private k22 = 0;
-  private inverseK11 = 0;
-  private inverseK12 = 0;
-  private inverseK22 = 0;
+  // Largest normal impulse seen this step; zero means the bodies never truly touched.
+  private maxNormalImpulse = 0;
 
   constructor(private manifold: Manifold) {
     this.bodyA = manifold.bodyA;
     this.bodyB = manifold.bodyB;
   }
 
-  prepare(manifold: Manifold, pointIndex: number): void {
+  prepare(manifold: Manifold, pointIndex: number, softness: Softness, invSubstep: number): void {
     const a = manifold.bodyA;
     const b = manifold.bodyB;
     const point = manifold.points[pointIndex];
@@ -122,39 +147,78 @@ class ContactConstraint {
     this.pointIndex = pointIndex;
     this.bodyA = a;
     this.bodyB = b;
+    this.softness = softness;
+    this.invSubstep = invSubstep;
     this.nx = manifold.normal.x;
     this.ny = manifold.normal.y;
     this.depth = manifold.depths[pointIndex];
-    this.startAx = a.position.x;
-    this.startAy = a.position.y;
-    this.startBx = b.position.x;
-    this.startBy = b.position.y;
+    this.turnsA = a.shape.kind !== 'circle';
+    this.turnsB = b.shape.kind !== 'circle';
     this.friction = Math.sqrt(a.friction * b.friction);
+    this.restitution = Math.max(a.restitution, b.restitution);
+    this.rollingResistance = Math.max(a.rollingResistance, b.rollingResistance);
+    this.rollingMass = 1 / (a.invInertia + b.invInertia);
+    this.rollingImpulse = manifold.rollingImpulses[pointIndex];
     this.rAx = point.x - a.position.x;
     this.rAy = point.y - a.position.y;
     this.rBx = point.x - b.position.x;
     this.rBy = point.y - b.position.y;
     this.normalImpulse = manifold.normalImpulses[pointIndex];
     this.tangentImpulse = manifold.tangentImpulses[pointIndex];
-    this.blockPartner = null;
-    this.isBlockFollower = false;
+    this.maxNormalImpulse = 0;
 
     this.normalMass = this.effectiveMass(this.nx, this.ny);
     this.tangentMass = this.effectiveMass(this.ny, -this.nx);
-
-    const approachSpeed = this.velocityAlong(this.nx, this.ny);
-    const bounces = approachSpeed < -RESTITUTION_THRESHOLD;
-    this.restitutionBias = bounces ? -Math.max(a.restitution, b.restitution) * approachSpeed : 0;
+    this.approachSpeed = this.velocityAlong(this.nx, this.ny);
   }
 
-  // Re-applies last step's impulses so the solver starts near the answer.
+  // Re-applies last substep's impulses so the solver starts near the answer.
   warmStart(): void {
+    this.applySpin(this.rollingImpulse);
     const tx = this.ny;
     const ty = -this.nx;
     this.applyImpulse(this.nx * this.normalImpulse + tx * this.tangentImpulse, this.ny * this.normalImpulse + ty * this.tangentImpulse);
   }
 
-  solveFriction(): void {
+  solve(useBias: boolean): void {
+    if (this.rollingResistance > 0) this.solveRolling();
+    this.solveFriction();
+    this.solveNormal(useBias);
+  }
+
+  // Lets a bounce happen once the substeps have settled the contact, using the speed from before the solve.
+  applyRestitution(): void {
+    if (this.restitution === 0 || this.approachSpeed > -RESTITUTION_THRESHOLD || this.maxNormalImpulse === 0) return;
+    const impulse = -this.normalMass * (this.velocityAlong(this.nx, this.ny) + this.restitution * this.approachSpeed);
+    const next = Math.max(this.normalImpulse + impulse, 0);
+    const applied = next - this.normalImpulse;
+    this.normalImpulse = next;
+    this.applyImpulse(this.nx * applied, this.ny * applied);
+  }
+
+  storeImpulses(): void {
+    this.manifold.normalImpulses[this.pointIndex] = this.normalImpulse;
+    this.manifold.tangentImpulses[this.pointIndex] = this.tangentImpulse;
+    this.manifold.rollingImpulses[this.pointIndex] = this.rollingImpulse;
+  }
+
+  // Brakes relative spin with a torque capped by the normal force, like a wheel sinking slightly into the ground.
+  private solveRolling(): void {
+    const { bodyA: a, bodyB: b } = this;
+    const impulse = -this.rollingMass * (b.angularVelocity - a.angularVelocity);
+    const limit = this.rollingResistance * this.normalImpulse;
+    const next = clamp(this.rollingImpulse + impulse, -limit, limit);
+    const applied = next - this.rollingImpulse;
+    this.rollingImpulse = next;
+    this.applySpin(applied);
+  }
+
+  private applySpin(impulse: number): void {
+    this.bodyA.angularVelocity -= this.bodyA.invInertia * impulse;
+    this.bodyB.angularVelocity += this.bodyB.invInertia * impulse;
+  }
+
+  private solveFriction(): void {
     const tx = this.ny;
     const ty = -this.nx;
     const impulse = -this.tangentMass * this.velocityAlong(tx, ty);
@@ -165,72 +229,41 @@ class ContactConstraint {
     this.applyImpulse(tx * applied, ty * applied);
   }
 
-  solveNormal(): void {
-    const impulse = -this.normalMass * (this.velocityAlong(this.nx, this.ny) - this.restitutionBias);
+  private solveNormal(useBias: boolean): void {
+    const separation = this.separation();
+    let bias = 0;
+    let massScale = 1;
+    let impulseScale = 0;
+    if (separation > 0) {
+      // Still apart: allow the bodies to close the gap this substep but not to cross it.
+      bias = separation * this.invSubstep;
+    } else if (useBias) {
+      bias = Math.max(this.softness.biasRate * separation, -MAX_PUSH_SPEED);
+      massScale = this.softness.massScale;
+      impulseScale = this.softness.impulseScale;
+    }
+    const impulse = -this.normalMass * massScale * (this.velocityAlong(this.nx, this.ny) + bias) - impulseScale * this.normalImpulse;
     const next = Math.max(this.normalImpulse + impulse, 0);
     const applied = next - this.normalImpulse;
     this.normalImpulse = next;
+    this.maxNormalImpulse = Math.max(this.maxNormalImpulse, next);
     this.applyImpulse(this.nx * applied, this.ny * applied);
   }
 
-  // Pairs this point with the manifold's second point, unless their coupling is too ill-conditioned to invert.
-  linkBlock(other: ContactConstraint): void {
+  // Gap along the normal: negative when overlapping. Anchors move with each body's position and turn.
+  private separation(): number {
     const { bodyA: a, bodyB: b } = this;
-    const crossA1 = this.rAx * this.ny - this.rAy * this.nx;
-    const crossB1 = this.rBx * this.ny - this.rBy * this.nx;
-    const crossA2 = other.rAx * this.ny - other.rAy * this.nx;
-    const crossB2 = other.rBx * this.ny - other.rBy * this.nx;
-    const mass = a.invMass + b.invMass;
-    this.k11 = mass + a.invInertia * crossA1 * crossA1 + b.invInertia * crossB1 * crossB1;
-    this.k22 = mass + a.invInertia * crossA2 * crossA2 + b.invInertia * crossB2 * crossB2;
-    this.k12 = mass + a.invInertia * crossA1 * crossA2 + b.invInertia * crossB1 * crossB2;
-    const det = this.k11 * this.k22 - this.k12 * this.k12;
-    if (this.k11 * this.k11 >= MAX_BLOCK_CONDITION * det) return;
-    this.inverseK11 = this.k22 / det;
-    this.inverseK12 = -this.k12 / det;
-    this.inverseK22 = this.k11 / det;
-    this.blockPartner = other;
-    other.isBlockFollower = true;
-  }
-
-  // Solves both points' normal impulses at once as a small LCP: try both active, then each alone, then neither.
-  solveNormalBlock(other: ContactConstraint): void {
-    const a1 = this.normalImpulse;
-    const a2 = other.normalImpulse;
-    // Velocity error with the accumulated impulses taken out.
-    const b1 = this.velocityAlong(this.nx, this.ny) - this.restitutionBias - (this.k11 * a1 + this.k12 * a2);
-    const b2 = other.velocityAlong(this.nx, this.ny) - other.restitutionBias - (this.k12 * a1 + this.k22 * a2);
-
-    const bothA = -(this.inverseK11 * b1 + this.inverseK12 * b2);
-    const bothB = -(this.inverseK12 * b1 + this.inverseK22 * b2);
-    if (bothA >= 0 && bothB >= 0) return this.applyBlock(other, bothA, bothB);
-
-    const onlyA = -b1 / this.k11;
-    if (onlyA >= 0 && this.k12 * onlyA + b2 >= 0) return this.applyBlock(other, onlyA, 0);
-
-    const onlyB = -b2 / this.k22;
-    if (onlyB >= 0 && this.k12 * onlyB + b1 >= 0) return this.applyBlock(other, 0, onlyB);
-
-    if (b1 >= 0 && b2 >= 0) this.applyBlock(other, 0, 0);
-  }
-
-  storeImpulses(): void {
-    this.manifold.normalImpulses[this.pointIndex] = this.normalImpulse;
-    this.manifold.tangentImpulses[this.pointIndex] = this.tangentImpulse;
-  }
-
-  // Moves the bodies apart along the normal without touching velocity, so no energy is added.
-  correctPosition(): void {
-    const { bodyA: a, bodyB: b } = this;
-    // Corrections only translate, so the current overlap is the detected one minus the relative shift along n.
-    const shifted = (b.position.x - this.startBx - (a.position.x - this.startAx)) * this.nx + (b.position.y - this.startBy - (a.position.y - this.startAy)) * this.ny;
-    const excess = this.depth - shifted - PENETRATION_SLOP;
-    if (excess <= 0) return;
-    const shift = (CORRECTION_FACTOR * excess) / (a.invMass + b.invMass);
-    a.position.x -= this.nx * shift * a.invMass;
-    a.position.y -= this.ny * shift * a.invMass;
-    b.position.x += this.nx * shift * b.invMass;
-    b.position.y += this.ny * shift * b.invMass;
+    let movedX = b.position.x - b.startX - (a.position.x - a.startX);
+    let movedY = b.position.y - b.startY - (a.position.y - a.startY);
+    if (this.turnsB) {
+      movedX += b.deltaCos * this.rBx - b.deltaSin * this.rBy - this.rBx;
+      movedY += b.deltaSin * this.rBx + b.deltaCos * this.rBy - this.rBy;
+    }
+    if (this.turnsA) {
+      movedX -= a.deltaCos * this.rAx - a.deltaSin * this.rAy - this.rAx;
+      movedY -= a.deltaSin * this.rAx + a.deltaCos * this.rAy - this.rAy;
+    }
+    return -this.depth + movedX * this.nx + movedY * this.ny;
   }
 
   // Inverse of the constraint's response: how much impulse along (dx, dy) gives unit speed change.
@@ -247,15 +280,6 @@ class ContactConstraint {
     const relX = b.velocity.x - b.angularVelocity * this.rBy - (a.velocity.x - a.angularVelocity * this.rAy);
     const relY = b.velocity.y + b.angularVelocity * this.rBx - (a.velocity.y + a.angularVelocity * this.rAx);
     return relX * dx + relY * dy;
-  }
-
-  private applyBlock(other: ContactConstraint, impulseA: number, impulseB: number): void {
-    const deltaA = impulseA - this.normalImpulse;
-    const deltaB = impulseB - other.normalImpulse;
-    this.normalImpulse = impulseA;
-    other.normalImpulse = impulseB;
-    this.applyImpulse(this.nx * deltaA, this.ny * deltaA);
-    other.applyImpulse(this.nx * deltaB, this.ny * deltaB);
   }
 
   private applyImpulse(px: number, py: number): void {

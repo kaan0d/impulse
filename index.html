@@ -4,68 +4,120 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Impulse</title>
+    <meta name="description" content="A 2D rigid body physics engine written from scratch in TypeScript. Drag shapes in, grab bodies with the mouse." />
     <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./src/theme.css" />
     <style>
       body {
-        margin: 0;
-        min-height: 100vh;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 12px;
-        padding: 16px;
-        box-sizing: border-box;
-        background: #12141a;
-        color: #c8cdd8;
-        font-family: system-ui, sans-serif;
+        gap: 28px;
+        padding: 32px 24px 48px;
+      }
+      header {
+        display: flex;
+        width: 100%;
+        max-width: 900px;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      nav {
+        display: flex;
+        gap: 28px;
+        font: 0.8125rem var(--font-mono);
+      }
+      nav a {
+        text-decoration: none;
+        color: var(--text-dim);
+      }
+      nav a:hover {
+        color: var(--accent);
       }
       .row {
         display: flex;
         flex-wrap: wrap;
-        gap: 12px;
+        gap: 14px 20px;
         align-items: center;
         justify-content: center;
       }
-      .item,
-      button,
-      select {
-        padding: 8px 16px;
-        border: 1px solid #3a3f4b;
-        border-radius: 6px;
-        background: #1c1f27;
-        color: inherit;
-        font: inherit;
-      }
-      .item {
-        cursor: grab;
-        user-select: none;
-      }
-      button {
-        cursor: pointer;
-      }
       label {
         display: flex;
-        gap: 6px;
+        gap: 8px;
         align-items: center;
         cursor: pointer;
+        font: 0.8125rem var(--font-mono);
+        color: var(--text-dim);
+      }
+      input[type='checkbox'] {
+        accent-color: var(--accent);
+      }
+      .label {
+        font: 0.75rem var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+      }
+      /* Palette chips draw the same faceted silhouettes as the solids on kaandinc.com. */
+      .item {
+        display: grid;
+        place-items: center;
+        width: 52px;
+        height: 52px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--bg-2);
+        cursor: grab;
+        user-select: none;
+        transition: border-color 0.2s;
+      }
+      .item:hover {
+        border-color: var(--accent);
+      }
+      .item svg {
+        width: 30px;
+        height: 30px;
+        fill: var(--metal);
+        stroke: var(--accent);
+        stroke-width: 1.5;
+        stroke-linejoin: round;
+        pointer-events: none;
+      }
+      .item .facet {
+        fill: none;
+        opacity: 0.35;
       }
       canvas {
-        background: #1a1d25;
-        border: 1px solid #3a3f4b;
+        background: var(--bg-2);
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
         max-width: 100%;
         height: auto;
         touch-action: none;
       }
-      small {
-        color: #8a91a0;
-        text-align: center;
+      #status {
+        margin-top: -8px;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
       }
-      a {
-        color: #7fa8ff;
+      .hint {
+        max-width: 640px;
+        text-align: center;
+        font-size: 0.875rem;
+        line-height: 1.75;
       }
     </style>
   </head>
   <body>
+    <header>
+      <span class="wordmark">impulse</span>
+      <nav>
+        <a href="./bench/">benchmark</a>
+        <a href="https://github.com/kaan0d/impulse" target="_blank" rel="noopener">source</a>
+        <a href="https://kaandinc.com" target="_blank" rel="noopener">kaandinc.com</a>
+      </nav>
+    </header>
     <div class="row">
       <label>Scene <select id="scene"></select></label>
       <button id="reset" type="button">Reset</button>
@@ -82,11 +134,25 @@
       </label>
     </div>
     <div class="row" id="palette">
-      <span>Drag onto the canvas:</span>
-      <div class="item" draggable="true" data-shape="circle">Circle</div>
-      <div class="item" draggable="true" data-shape="box">Box</div>
-      <div class="item" draggable="true" data-shape="triangle">Triangle</div>
-      <div class="item" draggable="true" data-shape="hexagon">Hexagon</div>
+      <span class="label">Drag onto the canvas</span>
+      <div class="item" draggable="true" data-shape="circle" title="Circle">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12" /><path class="facet" d="M16 16h12" /></svg>
+      </div>
+      <div class="item" draggable="true" data-shape="box" title="Box">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="5" width="22" height="22" /><path class="facet" d="M5 5l22 22M27 5L5 27" /></svg>
+      </div>
+      <div class="item" draggable="true" data-shape="triangle" title="Triangle">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4l10.4 18H5.6z" /><path class="facet" d="M16 16V4M16 16l10.4 6M16 16L5.6 22" /></svg>
+      </div>
+      <div class="item" draggable="true" data-shape="diamond" title="Diamond">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4l12 12-12 12L4 16z" /><path class="facet" d="M16 4v24M4 16h24" /></svg>
+      </div>
+      <div class="item" draggable="true" data-shape="pentagon" title="Pentagon">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4l11.4 8.3-4.4 13.4H9L4.6 12.3z" /><path class="facet" d="M16 16V4M16 16l11.4-3.7M16 16l7 9.7M16 16L9 25.7M16 16L4.6 12.3" /></svg>
+      </div>
+      <div class="item" draggable="true" data-shape="hexagon" title="Hexagon">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4l10.4 6v12L16 28 5.6 22V10z" /><path class="facet" d="M16 16V4M16 16l10.4-6M16 16l10.4 6M16 16v12M16 16L5.6 22M16 16L5.6 10" /></svg>
+      </div>
     </div>
     <canvas id="view" width="900" height="600"></canvas>
     <div class="row">
@@ -95,9 +161,9 @@
       <label><input id="continuous" type="checkbox" checked /> Continuous collision</label>
     </div>
     <small id="status"></small>
-    <small>
-      Grab any body with the mouse. Red dots are contact points and red lines their normals; green marks joints. Darker
-      bodies are asleep. <a href="./bench/">Benchmark</a>
+    <small class="hint">
+      Grab any body with the mouse. White dots are contact points and their lines the normals; joints are drawn in light
+      grey. Amber bodies are awake, dim ones are asleep.
     </small>
     <script type="module" src="./src/demo/main.ts"></script>
   </body>

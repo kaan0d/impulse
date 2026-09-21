@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Body } from '../src/engine/body';
+import { SUBSTEPS } from '../src/engine/solver';
 import { FIXED_DT } from '../src/engine/stepper';
 import { World } from '../src/engine/world';
 import { groundWorld, run } from './helpers';
@@ -44,21 +45,21 @@ describe('resting contact', () => {
 });
 
 describe('warm starting', () => {
-  it('resting impulses equal the weight per step and persist in one pooled manifold', () => {
+  it('resting impulses equal the weight per substep and persist in one pooled manifold', () => {
     const world = groundWorld();
     world.add(Body.box(1, 1, 2, 0, 0.5));
     run(world, 0.2);
     const manifold = world.manifolds[0];
     const supportImpulse = () => manifold.normalImpulses[0] + manifold.normalImpulses[1];
-    expect(supportImpulse()).toBeCloseTo(2 * G * FIXED_DT, 3);
+    expect(supportImpulse()).toBeCloseTo((2 * G * FIXED_DT) / SUBSTEPS, 3);
 
     run(world, 0.1);
     expect(world.manifolds[0]).toBe(manifold);
-    expect(supportImpulse()).toBeCloseTo(2 * G * FIXED_DT, 3);
+    expect(supportImpulse()).toBeCloseTo((2 * G * FIXED_DT) / SUBSTEPS, 3);
   });
 });
 
-describe('block solver', () => {
+describe('two-point contacts', () => {
   it('splits the weight of a centred box evenly over its two contact points', () => {
     const world = groundWorld();
     world.add(Body.box(1, 1, 2, 0, 0.5));
@@ -67,7 +68,7 @@ describe('block solver', () => {
     expect(manifold.count).toBe(2);
     const [left, right] = manifold.normalImpulses;
     expect(left).toBeCloseTo(right, 6);
-    expect(left + right).toBeCloseTo(2 * G * FIXED_DT, 3);
+    expect(left + right).toBeCloseTo((2 * G * FIXED_DT) / SUBSTEPS, 3);
   });
 
   it('never applies a pulling normal impulse', () => {
@@ -131,11 +132,11 @@ describe('restitution', () => {
       bounced ||= before < 0 && ball.velocity.y > 0;
       if (bounced) peak = Math.max(peak, ball.position.y);
     }
-    // Gravity is added before the impact solve, so the rebound gains about g*dt of speed (~3.5% here).
+    // Restitution reads the speed before gravity is added, so the rebound does not gain g*dt.
     const dropHeight = 4.5;
     expect(bounced).toBe(true);
-    expect(peak - 0.5).toBeGreaterThan(dropHeight * 0.95);
-    expect(peak - 0.5).toBeLessThan(dropHeight * 1.06);
+    expect(peak - 0.5).toBeGreaterThan(dropHeight * 0.98);
+    expect(peak - 0.5).toBeLessThan(dropHeight * 1.02);
   });
 });
 

@@ -13,6 +13,8 @@ const spawners: Record<string, (x: number, y: number) => Body> = {
   circle: (x, y) => Body.circle(0.5, 1, x, y),
   box: (x, y) => Body.box(1, 1, 1, x, y),
   triangle: (x, y) => Body.regularPolygon(3, 0.7, 1, x, y),
+  diamond: (x, y) => Body.regularPolygon(4, 0.7, 1, x, y),
+  pentagon: (x, y) => Body.regularPolygon(5, 0.6, 1, x, y),
   hexagon: (x, y) => Body.regularPolygon(6, 0.55, 1, x, y),
 };
 
