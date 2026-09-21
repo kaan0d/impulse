@@ -1,6 +1,9 @@
 import type { Body } from './body';
 import { Vec2 } from './vec2';
 
+// Shapes closer than this still make contacts, with negative depth, so the solver can stop them before they touch.
+export const CONTACT_MARGIN = 0.02;
+
 /// Contact patch between two bodies. Persistent per touching pair; `collide` overwrites it in place.
 export class Manifold {
   // Unit vector from bodyA toward bodyB.

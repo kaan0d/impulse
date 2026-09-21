@@ -1,10 +1,12 @@
 import type { Body } from './body';
 import { writeBounds } from './bounds';
+import { CONTACT_MARGIN } from './manifold';
 
 // Pair key = smaller id * stride + larger id. 2^26 keeps the key an exact integer for up to 67M bodies.
 export const PAIR_KEY_STRIDE = 2 ** 26;
 
 const MIN_BUCKETS = 64;
+const HALF_MARGIN = CONTACT_MARGIN / 2;
 
 /// Uniform-grid broadphase. Reports every pair of bodies with overlapping bounding boxes where at least
 /// one body is simulated, as sorted unique pair keys. Rebuilt from scratch on each call, allocation-free
@@ -41,7 +43,16 @@ export class SpatialHash {
 
   private updateBounds(bodies: Body[]): void {
     if (this.bounds.length < bodies.length * 4) this.bounds = new Float64Array(bodies.length * 8);
-    for (const body of bodies) writeBounds(body, this.bounds, body.id * 4);
+    const { bounds } = this;
+    for (const body of bodies) {
+      const at = body.id * 4;
+      writeBounds(body, bounds, at);
+      // Each box grows by half the margin, so pairs closer than the margin overlap and are found.
+      bounds[at] -= HALF_MARGIN;
+      bounds[at + 1] -= HALF_MARGIN;
+      bounds[at + 2] += HALF_MARGIN;
+      bounds[at + 3] += HALF_MARGIN;
+    }
   }
 
   // Counting sort of (cell, body) entries into hash buckets, keeping body ids ascending inside each bucket.

@@ -1,5 +1,6 @@
 import { Body } from '../src/engine/body';
 import { SpatialHash } from '../src/engine/broadphase';
+import { CONTACT_MARGIN } from '../src/engine/manifold';
 import { FIXED_DT } from '../src/engine/stepper';
 import { World } from '../src/engine/world';
 
@@ -140,14 +141,15 @@ export function runBroadphase(bodyCount: number): BroadphaseResult {
   return { bodies: bodyCount, pairs, spatialHashMs, bruteForceMs, samePairs: pairs === brutePairs };
 }
 
-// Every pair tested; valid for the axis-aligned unit boxes above.
+// Every pair tested; valid for the axis-aligned unit boxes above, which count as a pair within the contact margin.
 function bruteForcePairCount(bodies: Body[]): number {
+  const reach = 1 + CONTACT_MARGIN;
   let count = 0;
   for (let i = 0; i < bodies.length; i++) {
     const a = bodies[i].position;
     for (let j = i + 1; j < bodies.length; j++) {
       const b = bodies[j].position;
-      if (Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1) count++;
+      if (Math.abs(a.x - b.x) <= reach && Math.abs(a.y - b.y) <= reach) count++;
     }
   }
   return count;

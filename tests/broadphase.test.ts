@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Body } from '../src/engine/body';
 import { PAIR_KEY_STRIDE, SpatialHash } from '../src/engine/broadphase';
 import { collide } from '../src/engine/collide';
-import { Manifold } from '../src/engine/manifold';
+import { CONTACT_MARGIN, Manifold } from '../src/engine/manifold';
 import { World } from '../src/engine/world';
 
 // Seeded generator so scenes are reproducible.
@@ -58,7 +58,7 @@ function boundsOf(body: Body): [number, number, number, number] {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
-// Every pair with touching-or-overlapping bounds and at least one simulated body, as ascending keys.
+// Every pair whose bounds overlap or lie within the contact margin, and at least one simulated body.
 function bruteForceKeys(bodies: Body[]): number[] {
   const keys: number[] = [];
   for (let i = 0; i < bodies.length; i++) {
@@ -66,7 +66,8 @@ function bruteForceKeys(bodies: Body[]): number[] {
       if (!bodies[i].isSimulated && !bodies[j].isSimulated) continue;
       const [ax0, ay0, ax1, ay1] = boundsOf(bodies[i]);
       const [bx0, by0, bx1, by1] = boundsOf(bodies[j]);
-      if (ax0 <= bx1 && bx0 <= ax1 && ay0 <= by1 && by0 <= ay1) keys.push(i * PAIR_KEY_STRIDE + j);
+      const reach = CONTACT_MARGIN;
+      if (ax0 <= bx1 + reach && bx0 <= ax1 + reach && ay0 <= by1 + reach && by0 <= ay1 + reach) keys.push(i * PAIR_KEY_STRIDE + j);
     }
   }
   return keys;
@@ -105,12 +106,14 @@ describe('SpatialHash pair set', () => {
     expect(bruteForceKeys(world.bodies)).toHaveLength(2);
   });
 
-  it('counts exactly touching bounds as overlapping', () => {
+  it('counts touching bounds and bounds within the contact margin as overlapping', () => {
     const world = new World();
     world.add(Body.box(1, 1, 1, 0, 0));
     world.add(Body.box(1, 1, 1, 1, 0));
-    world.add(Body.box(1, 1, 1, 2.001, 0));
-    expect(hashKeys(new SpatialHash(1), world.bodies)).toEqual([0 * PAIR_KEY_STRIDE + 1]);
+    // A 1.5 cm gap is inside the margin; the next box is 3.5 cm away, outside it.
+    world.add(Body.box(1, 1, 1, 2.015, 0));
+    world.add(Body.box(1, 1, 1, 3.05, 0));
+    expect(hashKeys(new SpatialHash(1), world.bodies)).toEqual([0 * PAIR_KEY_STRIDE + 1, 1 * PAIR_KEY_STRIDE + 2]);
   });
 
   it('skips pairs where neither body is simulated', () => {
