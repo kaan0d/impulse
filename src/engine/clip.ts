@@ -1,4 +1,4 @@
-import type { Manifold } from './manifold';
+import { CONTACT_MARGIN, type Manifold } from './manifold';
 import type { Vec2 } from './vec2';
 
 // A later SAT axis replaces the current one only if clearly shallower, keeping the reference face stable.
@@ -18,7 +18,7 @@ export function clipToSlab(d0: number, d1: number, half: number, range: Vec2): b
   return range.x <= range.y;
 }
 
-/// Adds a contact for a point on or behind the reference face plane (n . p = planeOffset).
+/// Adds a contact for a point behind the reference face plane (n . p = planeOffset) or within the contact margin of it.
 export function emitIfBelowFace(
   out: Manifold,
   px: number,
@@ -29,7 +29,7 @@ export function emitIfBelowFace(
   id: number,
 ): void {
   const separation = px * rnx + py * rny - planeOffset;
-  if (separation > 0) return;
+  if (separation > CONTACT_MARGIN) return;
   // Midway between the point and its projection onto the face.
   out.addContact(px - (rnx * separation) / 2, py - (rny * separation) / 2, -separation, id);
 }

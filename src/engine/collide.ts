@@ -2,11 +2,11 @@ import type { Body, BoxShape, CircleShape, PolygonShape } from './body';
 import { ABSOLUTE_TOL, RELATIVE_TOL, clipToSlab, emitIfBelowFace } from './clip';
 import { circleVsPolygon, convexVsConvex, polygonVsCircle } from './collide-convex';
 import { clamp } from './math';
-import type { Manifold } from './manifold';
+import { CONTACT_MARGIN, type Manifold } from './manifold';
 import { Vec2 } from './vec2';
 
-/// Fills `out` and returns true if the bodies overlap. The normal points from a to b.
-/// Touching shapes count as overlapping with zero depth. Allocation-free.
+/// Fills `out` and returns true if the bodies overlap or are closer than CONTACT_MARGIN. The normal points from a to b.
+/// Depth is negative for a gap. Allocation-free.
 export function collide(a: Body, b: Body, out: Manifold): boolean {
   out.bodyA = a;
   out.bodyB = b;
@@ -62,7 +62,8 @@ function circleVsCircle(a: Body, sa: CircleShape, b: Body, sb: CircleShape, out:
   const dy = b.position.y - a.position.y;
   const radii = sa.radius + sb.radius;
   const distSq = dx * dx + dy * dy;
-  if (distSq > radii * radii) return false;
+  const reach = radii + CONTACT_MARGIN;
+  if (distSq > reach * reach) return false;
 
   const dist = Math.sqrt(distSq);
   // Coincident centers have no direction, so pick +x.
@@ -116,7 +117,7 @@ function boxVsCircle(box: Body, sb: BoxShape, circle: Body, sc: CircleShape, out
   }
 
   const depth = sc.radius - gap;
-  if (depth < 0) return false;
+  if (depth < -CONTACT_MARGIN) return false;
 
   // Contact sits midway between the box surface and the circle's deepest point.
   const mx = px - (nx * depth) / 2;
@@ -232,7 +233,7 @@ function selectAxis(dx: number, dy: number): boolean {
     const nx = useX ? box.ux : box.vx;
     const ny = useX ? box.uy : box.vy;
     const penetration = boxA.radiusAlong(nx, ny) + boxB.radiusAlong(nx, ny) - Math.abs(dx * nx + dy * ny);
-    if (penetration < 0) return false;
+    if (penetration < -CONTACT_MARGIN) return false;
     if (penetration >= leastPenetration * RELATIVE_TOL - ABSOLUTE_TOL) continue;
     leastPenetration = penetration;
     axis.index = i;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Body } from '../src/engine/body';
 import { collide } from '../src/engine/collide';
-import { Manifold } from '../src/engine/manifold';
+import { CONTACT_MARGIN, Manifold } from '../src/engine/manifold';
 import { Vec2 } from '../src/engine/vec2';
 import { World } from '../src/engine/world';
 import { groundWorld, run } from './helpers';
@@ -190,8 +190,9 @@ describe('polygon against circle', () => {
       const manifold = new Manifold(polygon, circle);
       const collided = collide(polygon, circle, manifold);
       // Skip the razor-thin boundary where either answer is legitimate.
-      if (Math.abs(distance - circle.shape.radius) < 1e-9) continue;
-      expect(collided, `case ${i}`).toBe(distance <= circle.shape.radius);
+      const reach = circle.shape.radius + CONTACT_MARGIN;
+      if (Math.abs(distance - reach) < 1e-9) continue;
+      expect(collided, `case ${i}`).toBe(distance <= reach);
       if (!collided) continue;
       expect(manifold.depths[0], `case ${i} depth`).toBeCloseTo(circle.shape.radius - distance, 9);
       checked++;
@@ -268,7 +269,7 @@ describe('polygon fuzz', () => {
       expect(Math.abs(manifold.normal.length() - 1)).toBeLessThan(1e-9);
       for (let k = 0; k < manifold.count; k++) {
         expect(Number.isFinite(manifold.points[k].x + manifold.points[k].y + manifold.depths[k])).toBe(true);
-        expect(manifold.depths[k]).toBeGreaterThanOrEqual(0);
+        expect(manifold.depths[k]).toBeGreaterThanOrEqual(-CONTACT_MARGIN);
       }
     }
     expect(hits).toBeGreaterThan(300);

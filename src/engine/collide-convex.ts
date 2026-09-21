@@ -1,6 +1,6 @@
 import { MAX_POLYGON_VERTICES, type Body, type CircleShape, type PolygonShape } from './body';
 import { ABSOLUTE_TOL, RELATIVE_TOL, clipToSlab, emitIfBelowFace } from './clip';
-import type { Manifold } from './manifold';
+import { CONTACT_MARGIN, type Manifold } from './manifold';
 import { Vec2 } from './vec2';
 
 /// World-space convex polygon: a box is four vertices. Edge i runs from vertex i to vertex i + 1.
@@ -58,11 +58,11 @@ export function convexVsConvex(a: Body, b: Body, out: Manifold): boolean {
   convexA.load(a);
   convexB.load(b);
   findMaxSeparation(convexA, convexB, separationA);
-  if (separationA.value > 0) return false;
+  if (separationA.value > CONTACT_MARGIN) return false;
   findMaxSeparation(convexB, convexA, separationB);
-  if (separationB.value > 0) return false;
+  if (separationB.value > CONTACT_MARGIN) return false;
 
-  // Separations are negative when overlapping; B's face must be clearly shallower to become the reference.
+  // Separations are negative when overlapping; B's face must be clearly better to become the reference.
   const refIsA = !(separationB.value > RELATIVE_TOL * separationA.value + ABSOLUTE_TOL);
   const ref = refIsA ? convexA : convexB;
   const inc = refIsA ? convexB : convexA;
@@ -151,7 +151,7 @@ export function polygonVsCircle(poly: Body, sp: PolygonShape, circle: Body, sc: 
       edge = i;
     }
   }
-  if (gap > sc.radius) return false;
+  if (gap > sc.radius + CONTACT_MARGIN) return false;
 
   // Closest polygon surface point p and outward normal n; `gap` becomes the signed distance from p to the center.
   const v1 = vertices[edge];
@@ -168,7 +168,7 @@ export function polygonVsCircle(poly: Body, sp: PolygonShape, circle: Body, sc: 
     const cx = lx - cornerFrom.x;
     const cy = ly - cornerFrom.y;
     const distance = Math.sqrt(cx * cx + cy * cy);
-    if (distance > sc.radius) return false;
+    if (distance > sc.radius + CONTACT_MARGIN) return false;
     px = cornerFrom.x;
     py = cornerFrom.y;
     // A center exactly on the corner keeps the edge normal.
