@@ -75,4 +75,4 @@ bench/        benchmark page
 tests/ e2e/   Vitest and Playwright
 ```
 
-A pre-commit hook (`.githooks/`, set up by `npm install`) runs the typecheck and unit tests. CI runs everything on pull requests; pushes to `main` deploy to GitHub Pages.
+A pre-commit hook (`.githooks/`, set up by `npm install`) runs the typecheck and unit tests. CI runs everything on pull requests; pushes to `main` deploy to the VPS (kaandinc.com/impulse/).
